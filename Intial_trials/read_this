@@ -1,0 +1,12 @@
+---->> Data is generated for a single case with initial conditions: T = 1473K, P = 51.013bar, O2_CH4_RATIO = 0.59, STEAM_CH4_RATIO = 0.0, N2_CH4_RATIO = 0.012 reference from : (Andreas Richter, Peter Seifert, Fred Compart, 
+       Paul Tischer, Bernd Meyer, A large-scale benchmark for the CFD modeling of non-catalytic reforming of natural gas based on the Freiberg test plant HP POX, https://doi.org/10.1016/j.fuel.2014.12.004.
+
+---->> Cantera is used to integrate by using sim.step() for adaptive solution, times are sampled using changes in states (arc_length_sample, filter_min_gap, fill_shortfall functions) and then again solved using sim.advance() 
+       for the solution. A way of sampling data to get the points in trajectory where most changes occur in states(Temperature, Species).("data_generation.ipynb", "temperature_comparison.png", "species_comparison.png" )
+                                                                                                                                                                                
+---->> The NeuralODE is trained on major species = ['CH4', 'O2', 'CO', 'H2', 'CO2', 'H2O'] by normalizing time and states(T, Y) with hyperparameters : HIDDEN_DIM = 64, NUM_LAYERS = 3, LEARNING_RATE = 1e-3, EPOCHS = 2000
+       using "dopri5" solver , Adam optimizer with only MSE as loss("train_on_major_species.ipynb").
+                                                                                                                                                                                 
+---->> CONCLUSION: The predictions are not at at all good ("results.png")
+                                                                                                                                                                                 
+---->> NEXT STEP: Train on full chemistry :  All species
