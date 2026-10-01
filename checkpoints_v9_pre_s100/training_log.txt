@@ -1,0 +1,422 @@
+
+========================================================================================
+RUN STARTED 2026-09-27T09:20:34
+command: train_node_rate_field_v9.py --data_dir hp_pox_steam_N2_data/data --out_dir checkpoints_v9_pre_s100 --return_sigma_max 1.0 --batch_scale 4 --noise_std_z0 0 --stage w250.lr_max=1e-5 --stage w250.lr_min=2e-6 --stage full.lambda_deriv=1.3 --stage full.lr_max=5e-6 --stage full.lr_min=5e-7 --stage full.epochs=100
+settings changed from the defaults: DATA_DIR=hp_pox_steam_N2_data/data, OUT_DIR=checkpoints_v9_pre_s100, RETURN_SIGMA_MAX=1.0, BATCH_SCALE=4.0, NOISE_STD_Z0=0.0
+stage edit: w250.lr_max=1e-5
+stage edit: w250.lr_min=2e-6
+stage edit: full.lambda_deriv=1.3
+stage edit: full.lr_max=5e-6
+stage edit: full.lr_min=5e-7
+stage edit: full.epochs=100
+========================================================================================
+log: appending to checkpoints_v9_pre_s100/training_log.txt
+device: cuda | dtype: torch.float32
+data: 404 cases x 550 points x 29 channels (28 species)
+time horizon per case: [1.00e-03, 1.00e+00] s
+split: train 283 | val 61 | test 60
+not learned (constant in time, restored per case from the initial state): ['AR', 'N2']
+state dim: 27 | |z| max on train: 1.00
+elements ['C', 'H', 'O']: largest drift along the TRUE trajectories 3.82e-05 % | true derivatives: median relative element residual 9.2e-17 | projection ON (v8)
+rate group 0 (T, 1 variables): log-rate data [-4.61, 15.21] nats, model bounded to [-7.61, 17.21]
+rate group 1 (CH4+O2, 2 variables): log-rate data [-4.61, 14.48] nats, model bounded to [-7.61, 16.48]
+rate group 2 (H2O, 1 variables): log-rate data [-4.61, 14.64] nats, model bounded to [-7.61, 16.64]
+rate group 3 (rest, 23 variables): log-rate data [-4.61, 23.03] nats, model bounded to [-7.61, 25.03]
+0.52% of group target rates capped at 1e+10 1/s
+controlled-return points (v9): 404 x 550, perturbation 0.005..1 (log-uniform), variables: fast, pull-back 1 x group speed, 30% of every collocation batch
+parameters: 212.8k
+  pretrain    1000/60000 | train 2.0964e-01 | val 2.2105e-01 (dir 1.442e-02, rate 2.066e-01) | rel. velocity error on data: median 27.4% p90 89.1% | augmented: median 50.8% | lr 2.00e-03 | 6s
+  pretrain    2000/60000 | train 1.7190e-01 | val 1.9866e-01 (dir 1.055e-02, rate 1.881e-01) | rel. velocity error on data: median 26.6% p90 90.1% | augmented: median 50.8% | lr 1.99e-03 | 12s
+  pretrain    3000/60000 | train 1.7613e-01 | val 1.5815e-01 (dir 9.144e-03, rate 1.490e-01) | rel. velocity error on data: median 23.0% p90 86.3% | augmented: median 48.6% | lr 1.99e-03 | 17s
+  pretrain    4000/60000 | train 1.4349e-01 | val 1.7285e-01 (dir 9.217e-03, rate 1.636e-01) | rel. velocity error on data: median 23.0% p90 89.0% | augmented: median 45.5% | lr 1.98e-03 | 22s
+  pretrain    5000/60000 | train 1.4589e-01 | val 1.7163e-01 (dir 9.342e-03, rate 1.623e-01) | rel. velocity error on data: median 22.1% p90 77.0% | augmented: median 46.4% | lr 1.97e-03 | 27s
+  pretrain    6000/60000 | train 1.1910e-01 | val 1.2801e-01 (dir 7.025e-03, rate 1.210e-01) | rel. velocity error on data: median 19.3% p90 73.5% | augmented: median 39.2% | lr 1.95e-03 | 33s
+  pretrain    7000/60000 | train 1.0825e-01 | val 1.1958e-01 (dir 6.007e-03, rate 1.136e-01) | rel. velocity error on data: median 14.4% p90 59.8% | augmented: median 35.6% | lr 1.93e-03 | 38s
+  pretrain    8000/60000 | train 1.2190e-01 | val 1.2609e-01 (dir 7.267e-03, rate 1.188e-01) | rel. velocity error on data: median 26.0% p90 81.0% | augmented: median 40.9% | lr 1.91e-03 | 44s
+  pretrain    9000/60000 | train 1.2465e-01 | val 1.2628e-01 (dir 5.624e-03, rate 1.207e-01) | rel. velocity error on data: median 23.5% p90 68.8% | augmented: median 35.7% | lr 1.89e-03 | 50s
+  pretrain   10000/60000 | train 8.9069e-02 | val 1.3891e-01 (dir 6.266e-03, rate 1.326e-01) | rel. velocity error on data: median 13.5% p90 80.9% | augmented: median 27.9% | lr 1.87e-03 | 55s
+  pretrain   11000/60000 | train 1.1447e-01 | val 1.2798e-01 (dir 5.818e-03, rate 1.222e-01) | rel. velocity error on data: median 13.5% p90 71.4% | augmented: median 29.2% | lr 1.84e-03 | 60s
+  pretrain   12000/60000 | train 9.7314e-02 | val 1.0332e-01 (dir 4.762e-03, rate 9.856e-02) | rel. velocity error on data: median 15.0% p90 56.7% | augmented: median 26.5% | lr 1.81e-03 | 66s
+  pretrain   13000/60000 | train 1.3173e-01 | val 1.1120e-01 (dir 4.861e-03, rate 1.063e-01) | rel. velocity error on data: median 21.5% p90 69.3% | augmented: median 31.0% | lr 1.78e-03 | 71s
+  pretrain   14000/60000 | train 1.0772e-01 | val 1.2029e-01 (dir 6.068e-03, rate 1.142e-01) | rel. velocity error on data: median 32.4% p90 69.1% | augmented: median 37.4% | lr 1.74e-03 | 77s
+  pretrain   15000/60000 | train 1.1539e-01 | val 1.0206e-01 (dir 4.712e-03, rate 9.735e-02) | rel. velocity error on data: median 16.4% p90 58.7% | augmented: median 30.1% | lr 1.71e-03 | 82s
+  pretrain   16000/60000 | train 1.0022e-01 | val 9.9905e-02 (dir 4.632e-03, rate 9.527e-02) | rel. velocity error on data: median 12.4% p90 50.1% | augmented: median 22.0% | lr 1.67e-03 | 88s
+  pretrain   17000/60000 | train 9.6210e-02 | val 1.0316e-01 (dir 4.529e-03, rate 9.863e-02) | rel. velocity error on data: median 12.4% p90 59.5% | augmented: median 21.5% | lr 1.63e-03 | 93s
+  pretrain   18000/60000 | train 1.0457e-01 | val 9.9682e-02 (dir 4.508e-03, rate 9.517e-02) | rel. velocity error on data: median 13.9% p90 51.4% | augmented: median 23.6% | lr 1.59e-03 | 99s
+  pretrain   19000/60000 | train 8.7142e-02 | val 1.0826e-01 (dir 4.524e-03, rate 1.037e-01) | rel. velocity error on data: median 10.6% p90 57.1% | augmented: median 21.4% | lr 1.55e-03 | 104s
+  pretrain   20000/60000 | train 8.1854e-02 | val 8.6024e-02 (dir 3.935e-03, rate 8.209e-02) | rel. velocity error on data: median 8.4% p90 48.8% | augmented: median 18.4% | lr 1.50e-03 | 110s
+  pretrain   21000/60000 | train 1.1397e-01 | val 1.1797e-01 (dir 5.074e-03, rate 1.129e-01) | rel. velocity error on data: median 13.5% p90 63.5% | augmented: median 22.9% | lr 1.46e-03 | 115s
+  pretrain   22000/60000 | train 8.8855e-02 | val 9.4411e-02 (dir 4.252e-03, rate 9.016e-02) | rel. velocity error on data: median 11.5% p90 56.7% | augmented: median 21.0% | lr 1.41e-03 | 120s
+  pretrain   23000/60000 | train 1.0079e-01 | val 9.9519e-02 (dir 4.371e-03, rate 9.515e-02) | rel. velocity error on data: median 13.2% p90 58.5% | augmented: median 21.7% | lr 1.36e-03 | 125s
+  pretrain   24000/60000 | train 1.0026e-01 | val 9.4126e-02 (dir 3.901e-03, rate 9.023e-02) | rel. velocity error on data: median 13.8% p90 52.4% | augmented: median 22.1% | lr 1.31e-03 | 130s
+  pretrain   25000/60000 | train 8.5246e-02 | val 1.0246e-01 (dir 4.556e-03, rate 9.790e-02) | rel. velocity error on data: median 9.5% p90 47.4% | augmented: median 18.2% | lr 1.26e-03 | 135s
+  pretrain   26000/60000 | train 8.1108e-02 | val 9.2790e-02 (dir 4.064e-03, rate 8.873e-02) | rel. velocity error on data: median 12.5% p90 48.6% | augmented: median 21.7% | lr 1.21e-03 | 141s
+  pretrain   27000/60000 | train 8.8752e-02 | val 9.6676e-02 (dir 4.675e-03, rate 9.200e-02) | rel. velocity error on data: median 14.3% p90 59.2% | augmented: median 24.1% | lr 1.16e-03 | 146s
+  pretrain   28000/60000 | train 9.2909e-02 | val 8.9557e-02 (dir 3.936e-03, rate 8.562e-02) | rel. velocity error on data: median 9.2% p90 51.4% | augmented: median 18.8% | lr 1.11e-03 | 151s
+  pretrain   29000/60000 | train 7.0350e-02 | val 8.8940e-02 (dir 3.962e-03, rate 8.498e-02) | rel. velocity error on data: median 10.3% p90 43.9% | augmented: median 21.1% | lr 1.06e-03 | 156s
+  pretrain   30000/60000 | train 8.8721e-02 | val 8.3958e-02 (dir 3.920e-03, rate 8.004e-02) | rel. velocity error on data: median 9.8% p90 43.6% | augmented: median 18.9% | lr 1.00e-03 | 162s
+  pretrain   31000/60000 | train 6.8381e-02 | val 9.5064e-02 (dir 3.948e-03, rate 9.112e-02) | rel. velocity error on data: median 10.0% p90 51.4% | augmented: median 20.7% | lr 9.53e-04 | 167s
+  pretrain   32000/60000 | train 8.4896e-02 | val 8.7825e-02 (dir 3.520e-03, rate 8.430e-02) | rel. velocity error on data: median 7.6% p90 58.4% | augmented: median 16.9% | lr 9.01e-04 | 172s
+  pretrain   33000/60000 | train 8.6074e-02 | val 9.1013e-02 (dir 4.021e-03, rate 8.699e-02) | rel. velocity error on data: median 9.3% p90 58.6% | augmented: median 18.2% | lr 8.49e-04 | 177s
+  pretrain   34000/60000 | train 7.7576e-02 | val 1.0145e-01 (dir 3.956e-03, rate 9.749e-02) | rel. velocity error on data: median 9.6% p90 52.5% | augmented: median 19.0% | lr 7.98e-04 | 182s
+  pretrain   35000/60000 | train 6.9836e-02 | val 8.6774e-02 (dir 3.863e-03, rate 8.291e-02) | rel. velocity error on data: median 6.6% p90 41.0% | augmented: median 16.0% | lr 7.47e-04 | 187s
+  pretrain   36000/60000 | train 6.7034e-02 | val 9.1567e-02 (dir 3.843e-03, rate 8.772e-02) | rel. velocity error on data: median 5.4% p90 56.8% | augmented: median 16.9% | lr 6.98e-04 | 193s
+  pretrain   37000/60000 | train 6.7461e-02 | val 8.7947e-02 (dir 3.385e-03, rate 8.456e-02) | rel. velocity error on data: median 7.0% p90 59.1% | augmented: median 17.8% | lr 6.48e-04 | 198s
+  pretrain   38000/60000 | train 7.3976e-02 | val 1.0078e-01 (dir 4.034e-03, rate 9.675e-02) | rel. velocity error on data: median 6.6% p90 55.8% | augmented: median 17.0% | lr 6.00e-04 | 204s
+  pretrain   39000/60000 | train 5.5299e-02 | val 8.4130e-02 (dir 3.486e-03, rate 8.064e-02) | rel. velocity error on data: median 6.6% p90 44.4% | augmented: median 17.2% | lr 5.53e-04 | 209s
+  pretrain   40000/60000 | train 6.7737e-02 | val 8.7829e-02 (dir 3.393e-03, rate 8.444e-02) | rel. velocity error on data: median 7.3% p90 44.5% | augmented: median 16.8% | lr 5.07e-04 | 214s
+  pretrain   41000/60000 | train 6.9651e-02 | val 7.8245e-02 (dir 3.419e-03, rate 7.483e-02) | rel. velocity error on data: median 6.2% p90 39.6% | augmented: median 15.6% | lr 4.63e-04 | 220s
+  pretrain   42000/60000 | train 5.7987e-02 | val 8.5594e-02 (dir 3.544e-03, rate 8.205e-02) | rel. velocity error on data: median 5.8% p90 44.9% | augmented: median 16.2% | lr 4.20e-04 | 225s
+  pretrain   43000/60000 | train 6.6676e-02 | val 8.2335e-02 (dir 3.514e-03, rate 7.882e-02) | rel. velocity error on data: median 5.8% p90 49.6% | augmented: median 16.2% | lr 3.79e-04 | 230s
+  pretrain   44000/60000 | train 6.4954e-02 | val 7.9585e-02 (dir 3.353e-03, rate 7.623e-02) | rel. velocity error on data: median 5.9% p90 52.5% | augmented: median 15.4% | lr 3.39e-04 | 235s
+  pretrain   45000/60000 | train 7.2179e-02 | val 8.7693e-02 (dir 3.392e-03, rate 8.430e-02) | rel. velocity error on data: median 4.7% p90 42.2% | augmented: median 15.3% | lr 3.01e-04 | 240s
+  pretrain   46000/60000 | train 6.6652e-02 | val 8.0814e-02 (dir 3.433e-03, rate 7.738e-02) | rel. velocity error on data: median 5.0% p90 47.0% | augmented: median 14.5% | lr 2.66e-04 | 246s
+  pretrain   47000/60000 | train 6.5199e-02 | val 7.6625e-02 (dir 3.285e-03, rate 7.334e-02) | rel. velocity error on data: median 6.4% p90 43.4% | augmented: median 15.5% | lr 2.32e-04 | 251s
+  pretrain   48000/60000 | train 5.2098e-02 | val 7.4871e-02 (dir 3.329e-03, rate 7.154e-02) | rel. velocity error on data: median 4.7% p90 35.7% | augmented: median 15.4% | lr 2.00e-04 | 256s
+  pretrain   49000/60000 | train 5.3262e-02 | val 7.5963e-02 (dir 3.359e-03, rate 7.260e-02) | rel. velocity error on data: median 4.8% p90 42.9% | augmented: median 14.9% | lr 1.71e-04 | 261s
+  pretrain   50000/60000 | train 6.1976e-02 | val 8.2989e-02 (dir 3.306e-03, rate 7.968e-02) | rel. velocity error on data: median 4.4% p90 42.7% | augmented: median 15.6% | lr 1.43e-04 | 266s
+  pretrain   51000/60000 | train 6.1374e-02 | val 7.9575e-02 (dir 3.397e-03, rate 7.618e-02) | rel. velocity error on data: median 4.5% p90 46.6% | augmented: median 14.4% | lr 1.18e-04 | 272s
+  pretrain   52000/60000 | train 5.4092e-02 | val 8.1364e-02 (dir 3.735e-03, rate 7.763e-02) | rel. velocity error on data: median 4.5% p90 45.3% | augmented: median 15.3% | lr 9.60e-05 | 277s
+  pretrain   53000/60000 | train 6.0208e-02 | val 8.3551e-02 (dir 3.602e-03, rate 7.995e-02) | rel. velocity error on data: median 5.1% p90 52.7% | augmented: median 15.6% | lr 7.61e-05 | 282s
+  pretrain   54000/60000 | train 4.6041e-02 | val 7.3705e-02 (dir 3.286e-03, rate 7.042e-02) | rel. velocity error on data: median 4.2% p90 47.8% | augmented: median 14.0% | lr 5.87e-05 | 287s
+  pretrain   55000/60000 | train 6.2813e-02 | val 7.6911e-02 (dir 3.402e-03, rate 7.351e-02) | rel. velocity error on data: median 4.2% p90 38.7% | augmented: median 15.9% | lr 4.39e-05 | 292s
+  pretrain   56000/60000 | train 5.9491e-02 | val 7.8004e-02 (dir 3.412e-03, rate 7.459e-02) | rel. velocity error on data: median 4.2% p90 42.0% | augmented: median 14.7% | lr 3.17e-05 | 298s
+  pretrain   57000/60000 | train 5.0983e-02 | val 7.6120e-02 (dir 3.575e-03, rate 7.255e-02) | rel. velocity error on data: median 4.2% p90 45.4% | augmented: median 15.6% | lr 2.23e-05 | 303s
+  pretrain   58000/60000 | train 4.7171e-02 | val 7.3143e-02 (dir 3.271e-03, rate 6.987e-02) | rel. velocity error on data: median 4.2% p90 43.7% | augmented: median 15.6% | lr 1.55e-05 | 308s
+  pretrain   59000/60000 | train 5.6601e-02 | val 7.3630e-02 (dir 3.234e-03, rate 7.040e-02) | rel. velocity error on data: median 4.2% p90 45.9% | augmented: median 14.0% | lr 1.14e-05 | 313s
+  pretrain   60000/60000 | train 4.6536e-02 | val 7.7152e-02 (dir 3.583e-03, rate 7.357e-02) | rel. velocity error on data: median 4.2% p90 46.6% | augmented: median 14.9% | lr 1.00e-05 | 319s
+pretraining done (best val 7.3143e-02)
+
+post-pretraining sanity rollout (no shooting yet):
+    continuous: T_rmse  185.56 K | T_max   494.5 K | t_ign err  10.3% | Y factor (median) 1.77x | majors RMSE 5.04e-02 | element drift (max along rollout) 0.00067% | 4 case(s)
+  (batch scale x4: batch 256, lr scaled by sqrt = x2.00)
+
+=== stage w8 | window 8 | 40 epochs x 64 batches of 256 | lr 2.0e-04 -> 1.0e-04 ===
+  loss: trajectory huber(delta 0.2) + 0.1 x collocation | start-state noise 0
+  incoming model scores 4.5005e-05 on this stage's validation windows (bar to beat)
+  epoch    1/40 | train 6.2027e-03 (traj 2.698e-05, deriv 6.176e-02) | val 1.4258e-05 * | lr 2.00e-04 | solver: 12635 evals, max 13 steps/window | failed batches 0/64, windows 0 | 30s
+  epoch    2/40 | train 5.7257e-03 (traj 1.757e-05, deriv 5.708e-02) | val 1.1547e-05 * | lr 1.99e-04 | solver: 12600 evals, max 10 steps/window | failed batches 0/64, windows 0 | 23s
+  epoch    4/40 | train 6.0147e-03 (traj 1.502e-05, deriv 6.000e-02) | val 9.8042e-06 * | lr 1.98e-04 | solver: 12775 evals, max 19 steps/window | failed batches 0/64, windows 0 | 23s
+  epoch    6/40 | train 6.1310e-03 (traj 1.320e-05, deriv 6.118e-02) | val 1.0792e-05   | lr 1.95e-04 | solver: 12670 evals, max 10 steps/window | failed batches 0/64, windows 0 | 24s
+  epoch    8/40 | train 6.3942e-03 (traj 1.185e-05, deriv 6.382e-02) | val 8.9554e-06 * | lr 1.90e-04 | solver: 12635 evals, max 10 steps/window | failed batches 0/64, windows 0 | 24s
+  epoch   10/40 | train 6.4738e-03 (traj 1.140e-05, deriv 6.462e-02) | val 9.2734e-06   | lr 1.85e-04 | solver: 12754 evals, max 17 steps/window | failed batches 0/64, windows 0 | 24s
+    [epoch 10] val continuous rollout: T_rmse  217.28 K | T_max   661.7 K | t_ign err  12.2% | Y factor (median) 1.60x | majors RMSE 6.88e-02 | element drift (max along rollout) 0.00094% | 4 case(s)
+  epoch   12/40 | train 6.3598e-03 (traj 1.128e-05, deriv 6.349e-02) | val 7.1220e-06 * | lr 1.79e-04 | solver: 12684 evals, max 11 steps/window | failed batches 0/64, windows 0 | 27s
+  epoch   14/40 | train 5.7687e-03 (traj 1.119e-05, deriv 5.758e-02) | val 9.3458e-06   | lr 1.73e-04 | solver: 12754 evals, max 23 steps/window | failed batches 0/64, windows 0 | 25s
+  epoch   16/40 | train 6.3984e-03 (traj 1.087e-05, deriv 6.387e-02) | val 7.6610e-06   | lr 1.65e-04 | solver: 12691 evals, max 12 steps/window | failed batches 0/64, windows 0 | 25s
+  epoch   18/40 | train 6.0474e-03 (traj 9.887e-06, deriv 6.037e-02) | val 7.8644e-06   | lr 1.58e-04 | solver: 12649 evals, max 10 steps/window | failed batches 0/64, windows 0 | 24s
+  epoch   20/40 | train 5.7457e-03 (traj 9.538e-06, deriv 5.736e-02) | val 7.2287e-06   | lr 1.50e-04 | solver: 12649 evals, max 13 steps/window | failed batches 0/64, windows 0 | 23s
+    [epoch 20] val continuous rollout: T_rmse  251.33 K | T_max   800.7 K | t_ign err  14.5% | Y factor (median) 1.55x | majors RMSE 8.45e-02 | element drift (max along rollout) 0.0019% | 4 case(s)
+  epoch   22/40 | train 5.7238e-03 (traj 9.945e-06, deriv 5.714e-02) | val 7.3320e-06   | lr 1.42e-04 | solver: 12754 evals, max 14 steps/window | failed batches 0/64, windows 0 | 25s
+  epoch   24/40 | train 5.7487e-03 (traj 8.978e-06, deriv 5.740e-02) | val 7.5736e-06   | lr 1.35e-04 | solver: 12726 evals, max 12 steps/window | failed batches 0/64, windows 0 | 24s
+  epoch   26/40 | train 5.8849e-03 (traj 9.234e-06, deriv 5.876e-02) | val 7.0512e-06 * | lr 1.27e-04 | solver: 12747 evals, max 16 steps/window | failed batches 0/64, windows 0 | 26s
+  epoch   28/40 | train 6.0211e-03 (traj 9.120e-06, deriv 6.012e-02) | val 7.0062e-06 * | lr 1.21e-04 | solver: 12656 evals, max 12 steps/window | failed batches 0/64, windows 0 | 26s
+  epoch   30/40 | train 5.5807e-03 (traj 8.755e-06, deriv 5.572e-02) | val 6.3230e-06 * | lr 1.15e-04 | solver: 12600 evals, max 12 steps/window | failed batches 0/64, windows 0 | 26s
+    [epoch 30] val continuous rollout: T_rmse  236.02 K | T_max   737.9 K | t_ign err  12.3% | Y factor (median) 1.54x | majors RMSE 7.82e-02 | element drift (max along rollout) 0.0012% | 4 case(s)
+  epoch   32/40 | train 5.4823e-03 (traj 8.504e-06, deriv 5.474e-02) | val 6.4283e-06   | lr 1.10e-04 | solver: 12684 evals, max 11 steps/window | failed batches 0/64, windows 0 | 24s
+  epoch   34/40 | train 5.7119e-03 (traj 8.843e-06, deriv 5.703e-02) | val 6.3042e-06 * | lr 1.05e-04 | solver: 12726 evals, max 12 steps/window | failed batches 0/64, windows 0 | 26s
+  epoch   36/40 | train 5.4623e-03 (traj 8.268e-06, deriv 5.454e-02) | val 6.6258e-06   | lr 1.02e-04 | solver: 12698 evals, max 12 steps/window | failed batches 0/64, windows 0 | 25s
+  epoch   38/40 | train 5.4271e-03 (traj 8.334e-06, deriv 5.419e-02) | val 6.2379e-06 * | lr 1.01e-04 | solver: 12845 evals, max 12 steps/window | failed batches 0/64, windows 0 | 25s
+  epoch   40/40 | train 5.6363e-03 (traj 8.565e-06, deriv 5.628e-02) | val 6.4610e-06   | lr 1.00e-04 | solver: 12663 evals, max 14 steps/window | failed batches 0/64, windows 0 | 26s
+    [epoch 40] val continuous rollout: T_rmse  224.35 K | T_max   690.3 K | t_ign err  12.9% | Y factor (median) 1.65x | majors RMSE 7.11e-02 | element drift (max along rollout) 0.00067% | 4 case(s)
+  stage w8 done | best val 6.2379e-06
+  (batch scale x4: batch 192, lr scaled by sqrt = x2.00)
+
+=== stage w20 | window 20 | 40 epochs x 64 batches of 192 | lr 2.0e-04 -> 6.0e-05 ===
+  loss: trajectory huber(delta 0.2) + 0.1 x collocation | start-state noise 0
+  incoming model scores 2.1432e-05 on this stage's validation windows (bar to beat)
+  epoch    1/40 | train 8.8931e-03 (traj 2.206e-05, deriv 8.871e-02) | val 1.3416e-05 * | lr 2.00e-04 | solver: 25774 evals, max 24 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch    2/40 | train 7.7153e-03 (traj 1.523e-05, deriv 7.700e-02) | val 1.4391e-05   | lr 1.99e-04 | solver: 25767 evals, max 23 steps/window | failed batches 0/64, windows 0 | 49s
+  epoch    4/40 | train 7.0805e-03 (traj 1.487e-05, deriv 7.066e-02) | val 1.2034e-05 * | lr 1.97e-04 | solver: 25879 evals, max 29 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch    6/40 | train 7.0980e-03 (traj 1.431e-05, deriv 7.084e-02) | val 1.3904e-05   | lr 1.92e-04 | solver: 25886 evals, max 34 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch    8/40 | train 7.6135e-03 (traj 1.451e-05, deriv 7.599e-02) | val 1.5281e-05   | lr 1.87e-04 | solver: 25795 evals, max 24 steps/window | failed batches 0/64, windows 0 | 55s
+  epoch   10/40 | train 7.2421e-03 (traj 1.345e-05, deriv 7.229e-02) | val 1.2432e-05   | lr 1.79e-04 | solver: 25767 evals, max 24 steps/window | failed batches 0/64, windows 0 | 51s
+    [epoch 10] val continuous rollout: T_rmse  235.50 K | T_max   731.6 K | t_ign err  12.3% | Y factor (median) 1.54x | majors RMSE 7.78e-02 | element drift (max along rollout) 0.00076% | 4 case(s)
+  epoch   12/40 | train 6.8972e-03 (traj 1.390e-05, deriv 6.883e-02) | val 1.1570e-05 * | lr 1.71e-04 | solver: 25746 evals, max 25 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch   14/40 | train 6.9667e-03 (traj 1.364e-05, deriv 6.953e-02) | val 1.0232e-05 * | lr 1.62e-04 | solver: 25760 evals, max 23 steps/window | failed batches 0/64, windows 0 | 51s
+  epoch   16/40 | train 6.7645e-03 (traj 1.152e-05, deriv 6.753e-02) | val 9.8395e-06 * | lr 1.52e-04 | solver: 25928 evals, max 24 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch   18/40 | train 6.7912e-03 (traj 1.216e-05, deriv 6.779e-02) | val 1.0267e-05   | lr 1.41e-04 | solver: 25809 evals, max 25 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch   20/40 | train 6.8228e-03 (traj 1.165e-05, deriv 6.811e-02) | val 9.6219e-06 * | lr 1.30e-04 | solver: 25914 evals, max 25 steps/window | failed batches 0/64, windows 0 | 50s
+    [epoch 20] val continuous rollout: T_rmse  224.74 K | T_max   687.5 K | t_ign err  12.6% | Y factor (median) 1.71x | majors RMSE 6.86e-02 | element drift (max along rollout) 0.0014% | 4 case(s)
+  epoch   22/40 | train 6.7830e-03 (traj 1.191e-05, deriv 6.771e-02) | val 1.0281e-05   | lr 1.19e-04 | solver: 25760 evals, max 23 steps/window | failed batches 0/64, windows 0 | 51s
+  epoch   24/40 | train 6.4085e-03 (traj 1.053e-05, deriv 6.398e-02) | val 9.1827e-06 * | lr 1.08e-04 | solver: 25844 evals, max 24 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch   26/40 | train 6.5694e-03 (traj 1.063e-05, deriv 6.559e-02) | val 9.9520e-06   | lr 9.82e-05 | solver: 25711 evals, max 27 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch   28/40 | train 6.4603e-03 (traj 1.109e-05, deriv 6.449e-02) | val 9.6778e-06   | lr 8.89e-05 | solver: 25872 evals, max 26 steps/window | failed batches 0/64, windows 0 | 51s
+  epoch   30/40 | train 6.5218e-03 (traj 1.102e-05, deriv 6.511e-02) | val 9.5505e-06   | lr 8.05e-05 | solver: 25865 evals, max 24 steps/window | failed batches 0/64, windows 0 | 51s
+    [epoch 30] val continuous rollout: T_rmse  168.74 K | T_max   499.0 K | t_ign err   6.5% | Y factor (median) 1.24x | majors RMSE 5.43e-02 | element drift (max along rollout) 0.00052% | 4 case(s)
+  epoch   32/40 | train 7.0286e-03 (traj 1.046e-05, deriv 7.018e-02) | val 9.0613e-06 * | lr 7.34e-05 | solver: 25879 evals, max 26 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch   34/40 | train 6.7894e-03 (traj 1.097e-05, deriv 6.778e-02) | val 1.0429e-05   | lr 6.76e-05 | solver: 25907 evals, max 25 steps/window | failed batches 0/64, windows 0 | 50s
+  epoch   36/40 | train 6.3860e-03 (traj 1.022e-05, deriv 6.376e-02) | val 9.2027e-06   | lr 6.34e-05 | solver: 25984 evals, max 27 steps/window | failed batches 0/64, windows 0 | 51s
+  epoch   38/40 | train 6.9169e-03 (traj 1.006e-05, deriv 6.907e-02) | val 8.7588e-06 * | lr 6.09e-05 | solver: 25725 evals, max 23 steps/window | failed batches 0/64, windows 0 | 51s
+  epoch   40/40 | train 6.2354e-03 (traj 1.074e-05, deriv 6.225e-02) | val 8.8790e-06   | lr 6.00e-05 | solver: 25774 evals, max 23 steps/window | failed batches 0/64, windows 0 | 50s
+    [epoch 40] val continuous rollout: T_rmse  170.30 K | T_max   506.9 K | t_ign err   7.8% | Y factor (median) 1.28x | majors RMSE 5.45e-02 | element drift (max along rollout) 0.00049% | 4 case(s)
+  stage w20 done | best val 8.7588e-06
+  (batch scale x4: batch 128, lr scaled by sqrt = x2.00)
+
+=== stage w50 | window 50 (10% anchored at t=0) | 40 epochs x 64 batches of 128 | lr 2.0e-04 -> 4.0e-05 ===
+  loss: trajectory huber(delta 0.2) + 0.1 x collocation | start-state noise 0
+  incoming model scores 8.2287e-05 on this stage's validation windows (bar to beat)
+  epoch    1/40 | train 5.9915e-03 (traj 1.228e-04, deriv 5.869e-02) | val 9.1654e-05   | lr 2.00e-04 | solver: 44394 evals, max 59 steps/window | failed batches 0/64, windows 0 | 121s
+  epoch    2/40 | train 5.8059e-03 (traj 9.356e-05, deriv 5.712e-02) | val 3.0835e-04   | lr 1.99e-04 | solver: 44219 evals, max 54 steps/window | failed batches 0/64, windows 0 | 118s
+    ROLLBACK: val 3.084e-04 > 3 x best 8.229e-05 -> reloaded the best weights, lr halved 1.99e-04 -> 9.95e-05
+  epoch    4/40 | train 5.7477e-03 (traj 5.835e-05, deriv 5.689e-02) | val 5.5132e-05 * | lr 9.80e-05 | solver: 44499 evals, max 63 steps/window | failed batches 0/64, windows 0 | 121s
+  epoch    6/40 | train 5.4772e-03 (traj 7.372e-05, deriv 5.404e-02) | val 5.5772e-05   | lr 9.56e-05 | solver: 44373 evals, max 62 steps/window | failed batches 0/64, windows 0 | 118s
+  epoch    8/40 | train 5.4784e-03 (traj 5.118e-05, deriv 5.427e-02) | val 4.5919e-05 * | lr 9.24e-05 | solver: 44527 evals, max 65 steps/window | failed batches 0/64, windows 0 | 117s
+  epoch   10/40 | train 5.8093e-03 (traj 4.337e-05, deriv 5.766e-02) | val 4.9235e-05   | lr 8.83e-05 | solver: 44380 evals, max 55 steps/window | failed batches 0/64, windows 0 | 119s
+    [epoch 10] val continuous rollout: T_rmse  148.35 K | T_max   399.8 K | t_ign err   5.2% | Y factor (median) 1.38x | majors RMSE 3.92e-02 | element drift (max along rollout) 0.00056% | 4 case(s)
+  epoch   12/40 | train 5.5244e-03 (traj 5.026e-05, deriv 5.474e-02) | val 4.3182e-05 * | lr 8.35e-05 | solver: 44296 evals, max 61 steps/window | failed batches 0/64, windows 0 | 120s
+  epoch   14/40 | train 5.4564e-03 (traj 3.770e-05, deriv 5.419e-02) | val 3.9549e-05 * | lr 7.82e-05 | solver: 44387 evals, max 57 steps/window | failed batches 0/64, windows 1 | 117s
+  epoch   16/40 | train 5.4090e-03 (traj 3.704e-05, deriv 5.372e-02) | val 4.2667e-05   | lr 7.24e-05 | solver: 44443 evals, max 58 steps/window | failed batches 0/64, windows 0 | 120s
+  epoch   18/40 | train 5.5728e-03 (traj 4.056e-05, deriv 5.532e-02) | val 3.9898e-05   | lr 6.63e-05 | solver: 44422 evals, max 55 steps/window | failed batches 0/64, windows 0 | 120s
+  epoch   20/40 | train 5.4511e-03 (traj 3.976e-05, deriv 5.411e-02) | val 3.8414e-05 * | lr 6.00e-05 | solver: 44394 evals, max 59 steps/window | failed batches 0/64, windows 0 | 117s
+    [epoch 20] val continuous rollout: T_rmse  128.60 K | T_max   370.0 K | t_ign err   4.4% | Y factor (median) 1.24x | majors RMSE 4.02e-02 | element drift (max along rollout) 0.00049% | 4 case(s)
+  epoch   22/40 | train 5.4925e-03 (traj 3.434e-05, deriv 5.458e-02) | val 3.6218e-05 * | lr 5.37e-05 | solver: 44569 evals, max 64 steps/window | failed batches 0/64, windows 0 | 124s
+  epoch   24/40 | train 5.5915e-03 (traj 3.605e-05, deriv 5.555e-02) | val 3.9554e-05   | lr 4.76e-05 | solver: 44408 evals, max 55 steps/window | failed batches 0/64, windows 1 | 115s
+  epoch   26/40 | train 5.3832e-03 (traj 3.679e-05, deriv 5.346e-02) | val 3.6999e-05   | lr 4.18e-05 | solver: 44380 evals, max 59 steps/window | failed batches 0/64, windows 0 | 117s
+  epoch   28/40 | train 5.1390e-03 (traj 3.526e-05, deriv 5.104e-02) | val 5.2735e-05   | lr 3.65e-05 | solver: 44366 evals, max 54 steps/window | failed batches 0/64, windows 0 | 120s
+  epoch   30/40 | train 5.4833e-03 (traj 3.389e-05, deriv 5.449e-02) | val 3.5791e-05 * | lr 3.17e-05 | solver: 44380 evals, max 56 steps/window | failed batches 0/64, windows 0 | 118s
+    [epoch 30] val continuous rollout: T_rmse  101.95 K | T_max   281.8 K | t_ign err   3.4% | Y factor (median) 1.21x | majors RMSE 3.29e-02 | element drift (max along rollout) 0.00052% | 4 case(s)
+  epoch   32/40 | train 5.3626e-03 (traj 3.485e-05, deriv 5.328e-02) | val 3.5157e-05 * | lr 2.76e-05 | solver: 44569 evals, max 56 steps/window | failed batches 0/64, windows 1 | 125s
+  epoch   34/40 | train 5.4973e-03 (traj 3.461e-05, deriv 5.463e-02) | val 3.6001e-05   | lr 2.44e-05 | solver: 44380 evals, max 53 steps/window | failed batches 0/64, windows 1 | 124s
+  epoch   36/40 | train 5.5380e-03 (traj 3.286e-05, deriv 5.505e-02) | val 3.5605e-05   | lr 2.20e-05 | solver: 44219 evals, max 59 steps/window | failed batches 0/64, windows 0 | 118s
+  epoch   38/40 | train 5.6353e-03 (traj 3.279e-05, deriv 5.602e-02) | val 3.4129e-05 * | lr 2.05e-05 | solver: 44436 evals, max 55 steps/window | failed batches 0/64, windows 0 | 114s
+  epoch   40/40 | train 5.2739e-03 (traj 3.346e-05, deriv 5.240e-02) | val 3.5261e-05   | lr 2.00e-05 | solver: 44422 evals, max 55 steps/window | failed batches 0/64, windows 0 | 116s
+    [epoch 40] val continuous rollout: T_rmse   98.13 K | T_max   276.5 K | t_ign err   3.7% | Y factor (median) 1.17x | majors RMSE 3.22e-02 | element drift (max along rollout) 0.00059% | 4 case(s)
+  stage w50 done | best val 3.4129e-05
+  (batch scale x4: batch 64, lr scaled by sqrt = x2.00)
+
+=== stage w120 | window 120 (30% anchored at t=0) | 40 epochs x 64 batches of 64 | lr 1.0e-04 -> 2.0e-05 ===
+  loss: trajectory huber(delta 0.2) + 0.1 x collocation | start-state noise 0
+  incoming model scores 3.1614e-04 on this stage's validation windows (bar to beat)
+  epoch    1/40 | train 4.8990e-03 (traj 1.169e-03, deriv 3.730e-02) | val 4.3744e-04   | lr 9.99e-05 | solver: 54026 evals, max 125 steps/window | failed batches 0/64, windows 0 | 285s
+  epoch    2/40 | train 4.3336e-03 (traj 4.625e-04, deriv 3.871e-02) | val 6.7540e-04   | lr 9.95e-05 | solver: 53774 evals, max 125 steps/window | failed batches 0/64, windows 0 | 281s
+  epoch    4/40 | train 4.1887e-03 (traj 3.962e-04, deriv 3.792e-02) | val 5.3913e-04   | lr 9.80e-05 | solver: 53844 evals, max 128 steps/window | failed batches 0/64, windows 0 | 289s
+  epoch    6/40 | train 4.2065e-03 (traj 3.322e-04, deriv 3.874e-02) | val 3.3065e-04   | lr 9.56e-05 | solver: 53795 evals, max 128 steps/window | failed batches 0/64, windows 0 | 291s
+  epoch    8/40 | train 4.3115e-03 (traj 4.916e-04, deriv 3.820e-02) | val 4.4553e-04   | lr 9.24e-05 | solver: 54033 evals, max 128 steps/window | failed batches 0/64, windows 0 | 293s
+  epoch   10/40 | train 4.0492e-03 (traj 3.035e-04, deriv 3.746e-02) | val 3.7145e-04   | lr 8.83e-05 | solver: 53879 evals, max 124 steps/window | failed batches 0/64, windows 0 | 274s
+    [epoch 10] val continuous rollout: T_rmse  276.16 K | T_max   702.7 K | t_ign err  13.5% | Y factor (median) 2.12x | majors RMSE 6.81e-02 | element drift (max along rollout) 0.001% | 4 case(s)
+  epoch   12/40 | train 4.2123e-03 (traj 3.370e-04, deriv 3.875e-02) | val 4.6892e-04   | lr 8.35e-05 | solver: 53858 evals, max 127 steps/window | failed batches 0/64, windows 0 | 285s
+  epoch   14/40 | train 4.0969e-03 (traj 2.622e-04, deriv 3.835e-02) | val 2.7614e-04 * | lr 7.82e-05 | solver: 53865 evals, max 124 steps/window | failed batches 0/64, windows 0 | 279s
+  epoch   16/40 | train 3.9429e-03 (traj 2.379e-04, deriv 3.705e-02) | val 2.6916e-04 * | lr 7.24e-05 | solver: 53802 evals, max 125 steps/window | failed batches 0/64, windows 0 | 273s
+  epoch   18/40 | train 4.1930e-03 (traj 3.653e-04, deriv 3.828e-02) | val 3.7315e-04   | lr 6.63e-05 | solver: 53914 evals, max 125 steps/window | failed batches 0/64, windows 0 | 277s
+  epoch   20/40 | train 3.9446e-03 (traj 2.688e-04, deriv 3.676e-02) | val 2.8614e-04   | lr 6.00e-05 | solver: 53802 evals, max 124 steps/window | failed batches 0/64, windows 0 | 282s
+    [epoch 20] val continuous rollout: T_rmse  264.71 K | T_max   647.6 K | t_ign err  10.4% | Y factor (median) 2.01x | majors RMSE 6.35e-02 | element drift (max along rollout) 0.00063% | 3 case(s) | 1 FAILED (step cap)
+  epoch   22/40 | train 3.8827e-03 (traj 2.103e-04, deriv 3.672e-02) | val 5.5529e-04   | lr 5.37e-05 | solver: 53858 evals, max 124 steps/window | failed batches 0/64, windows 0 | 279s
+  epoch   24/40 | train 4.0271e-03 (traj 2.329e-04, deriv 3.794e-02) | val 2.5385e-04 * | lr 4.76e-05 | solver: 53774 evals, max 125 steps/window | failed batches 0/64, windows 0 | 276s
+Traceback (most recent call last):
+  File "/workspace/train_node_rate_field_v9.py", line 2313, in <module>
+    train_stage(stage)
+  File "/workspace/train_node_rate_field_v9.py", line 2087, in train_stage
+    loss.backward()
+  File "/usr/local/lib/python3.12/dist-packages/torch/_tensor.py", line 623, in backward
+    torch.autograd.backward(
+  File "/usr/local/lib/python3.12/dist-packages/torch/autograd/__init__.py", line 395, in backward
+    _engine_run_backward(
+  File "/usr/local/lib/python3.12/dist-packages/torch/autograd/graph.py", line 1072, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+
+========================================================================================
+RUN STARTED 2026-09-27T13:32:28
+command: train_node_rate_field_v9.py --data_dir hp_pox_steam_N2_data/data --out_dir checkpoints_v9_pre_s100 --return_sigma_max 1.0 --batch_scale 4 --noise_std_z0 0 --stage w250.lr_max=1e-5 --stage w250.lr_min=2e-6 --stage full.lambda_deriv=1.3 --stage full.lr_max=5e-6 --stage full.lr_min=5e-7 --stage full.epochs=100
+settings changed from the defaults: DATA_DIR=hp_pox_steam_N2_data/data, OUT_DIR=checkpoints_v9_pre_s100, RETURN_SIGMA_MAX=1.0, BATCH_SCALE=4.0, NOISE_STD_Z0=0.0
+stage edit: w250.lr_max=1e-5
+stage edit: w250.lr_min=2e-6
+stage edit: full.lambda_deriv=1.3
+stage edit: full.lr_max=5e-6
+stage edit: full.lr_min=5e-7
+stage edit: full.epochs=100
+========================================================================================
+log: appending to checkpoints_v9_pre_s100/training_log.txt
+device: cuda | dtype: torch.float32
+data: 404 cases x 550 points x 29 channels (28 species)
+time horizon per case: [1.00e-03, 1.00e+00] s
+split: train 283 | val 61 | test 60
+not learned (constant in time, restored per case from the initial state): ['AR', 'N2']
+state dim: 27 | |z| max on train: 1.00
+elements ['C', 'H', 'O']: largest drift along the TRUE trajectories 3.82e-05 % | true derivatives: median relative element residual 9.2e-17 | projection ON (v8)
+rate group 0 (T, 1 variables): log-rate data [-4.61, 15.21] nats, model bounded to [-7.61, 17.21]
+rate group 1 (CH4+O2, 2 variables): log-rate data [-4.61, 14.48] nats, model bounded to [-7.61, 16.48]
+rate group 2 (H2O, 1 variables): log-rate data [-4.61, 14.64] nats, model bounded to [-7.61, 16.64]
+rate group 3 (rest, 23 variables): log-rate data [-4.61, 23.03] nats, model bounded to [-7.61, 25.03]
+0.52% of group target rates capped at 1e+10 1/s
+controlled-return points (v9): 404 x 550, perturbation 0.005..1 (log-uniform), variables: fast, pull-back 1 x group speed, 30% of every collocation batch
+parameters: 212.8k
+loaded pretrained field (val 7.3143e-02)
+
+post-pretraining sanity rollout (no shooting yet):
+    continuous: T_rmse  185.56 K | T_max   494.5 K | t_ign err  10.3% | Y factor (median) 1.77x | majors RMSE 5.04e-02 | element drift (max along rollout) 0.00064% | 4 case(s)
+=== stage w8: already complete (best 6.2379e-06) ===
+=== stage w20: already complete (best 8.7588e-06) ===
+=== stage w50: already complete (best 3.4129e-05) ===
+=== stage w120: resuming at epoch 25 ===
+
+=== stage w120 | window 120 (30% anchored at t=0) | 40 epochs x 64 batches of 64 | lr 1.0e-04 -> 2.0e-05 ===
+  loss: trajectory huber(delta 0.2) + 0.1 x collocation | start-state noise 0
+  epoch   26/40 | train 4.0165e-03 (traj 1.964e-04, deriv 3.820e-02) | val 1.7235e-04 * | lr 4.18e-05 | solver: 53830 evals, max 125 steps/window | failed batches 0/64, windows 0 | 347s
+Traceback (most recent call last):
+  File "/workspace/train_node_rate_field_v9.py", line 2363, in <module>
+    train_stage(stage)
+  File "/workspace/train_node_rate_field_v9.py", line 2137, in train_stage
+    loss.backward()
+  File "/usr/local/lib/python3.12/dist-packages/torch/_tensor.py", line 623, in backward
+    torch.autograd.backward(
+  File "/usr/local/lib/python3.12/dist-packages/torch/autograd/__init__.py", line 395, in backward
+    _engine_run_backward(
+  File "/usr/local/lib/python3.12/dist-packages/torch/autograd/graph.py", line 1072, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+
+========================================================================================
+RUN STARTED 2026-09-27T14:24:46
+command: train_node_rate_field_v9.py --data_dir hp_pox_steam_N2_data/data --out_dir checkpoints_v9_pre_s100 --return_sigma_max 1.0 --compile_field --batch_scale 4 --noise_std_z0 0 --stage w250.lr_max=1e-5 --stage w250.lr_min=2e-6 --stage full.lambda_deriv=1.3 --stage full.lr_max=5e-6 --stage full.lr_min=5e-7 --stage full.epochs=100
+settings changed from the defaults: DATA_DIR=hp_pox_steam_N2_data/data, OUT_DIR=checkpoints_v9_pre_s100, COMPILE_FIELD=True, RETURN_SIGMA_MAX=1.0, BATCH_SCALE=4.0, NOISE_STD_Z0=0.0
+stage edit: w250.lr_max=1e-5
+stage edit: w250.lr_min=2e-6
+stage edit: full.lambda_deriv=1.3
+stage edit: full.lr_max=5e-6
+stage edit: full.lr_min=5e-7
+stage edit: full.epochs=100
+========================================================================================
+log: appending to checkpoints_v9_pre_s100/training_log.txt
+device: cuda | dtype: torch.float32
+data: 404 cases x 550 points x 29 channels (28 species)
+time horizon per case: [1.00e-03, 1.00e+00] s
+split: train 283 | val 61 | test 60
+not learned (constant in time, restored per case from the initial state): ['AR', 'N2']
+state dim: 27 | |z| max on train: 1.00
+elements ['C', 'H', 'O']: largest drift along the TRUE trajectories 3.82e-05 % | true derivatives: median relative element residual 9.2e-17 | projection ON (v8)
+rate group 0 (T, 1 variables): log-rate data [-4.61, 15.21] nats, model bounded to [-7.61, 17.21]
+rate group 1 (CH4+O2, 2 variables): log-rate data [-4.61, 14.48] nats, model bounded to [-7.61, 16.48]
+rate group 2 (H2O, 1 variables): log-rate data [-4.61, 14.64] nats, model bounded to [-7.61, 16.64]
+rate group 3 (rest, 23 variables): log-rate data [-4.61, 23.03] nats, model bounded to [-7.61, 25.03]
+0.52% of group target rates capped at 1e+10 1/s
+controlled-return points (v9): 404 x 550, perturbation 0.005..1 (log-uniform), variables: fast, pull-back 1 x group speed, 30% of every collocation batch
+parameters: 212.8k
+loaded pretrained field (val 7.3143e-02)
+
+post-pretraining sanity rollout (no shooting yet):
+compile_field: model call compiled
+    continuous: T_rmse  185.56 K | T_max   494.5 K | t_ign err  10.3% | Y factor (median) 1.77x | majors RMSE 5.04e-02 | element drift (max along rollout) 0.00063% | 4 case(s)
+=== stage w8: already complete (best 6.2379e-06) ===
+=== stage w20: already complete (best 8.7588e-06) ===
+=== stage w50: already complete (best 3.4129e-05) ===
+=== stage w120: resuming at epoch 28 ===
+
+=== stage w120 | window 120 (30% anchored at t=0) | 40 epochs x 64 batches of 64 | lr 1.0e-04 -> 2.0e-05 ===
+  loss: trajectory huber(delta 0.2) + 0.1 x collocation | start-state noise 0
+  epoch   28/40 | train 3.7894e-03 (traj 2.216e-04, deriv 3.568e-02) | val 2.4038e-04   | lr 3.65e-05 | solver: 53886 evals, max 129 steps/window | failed batches 0/64, windows 0 | 121s
+  epoch   30/40 | train 3.7300e-03 (traj 1.704e-04, deriv 3.560e-02) | val 1.3841e-04 * | lr 3.17e-05 | solver: 53872 evals, max 135 steps/window | failed batches 0/64, windows 0 | 125s
+    [epoch 30] val continuous rollout: T_rmse  129.66 K | T_max   318.0 K | t_ign err   1.5% | Y factor (median) 1.32x | majors RMSE 2.93e-02 | element drift (max along rollout) 0.00055% | 4 case(s)
+  epoch   32/40 | train 3.8059e-03 (traj 1.269e-04, deriv 3.679e-02) | val 1.2347e-04 * | lr 2.76e-05 | solver: 53802 evals, max 125 steps/window | failed batches 0/64, windows 0 | 129s
+  epoch   34/40 | train 3.8730e-03 (traj 1.295e-04, deriv 3.743e-02) | val 1.5610e-04   | lr 2.44e-05 | solver: 53753 evals, max 124 steps/window | failed batches 0/64, windows 0 | 118s
+  epoch   36/40 | train 3.7802e-03 (traj 1.505e-04, deriv 3.630e-02) | val 1.3227e-04   | lr 2.20e-05 | solver: 53865 evals, max 131 steps/window | failed batches 0/64, windows 0 | 118s
+  epoch   38/40 | train 3.6800e-03 (traj 1.119e-04, deriv 3.568e-02) | val 1.2238e-04 * | lr 2.05e-05 | solver: 53767 evals, max 125 steps/window | failed batches 0/64, windows 0 | 118s
+  epoch   40/40 | train 3.7792e-03 (traj 1.286e-04, deriv 3.651e-02) | val 1.1431e-04 * | lr 2.00e-05 | solver: 53753 evals, max 124 steps/window | failed batches 0/64, windows 0 | 117s
+    [epoch 40] val continuous rollout: T_rmse  117.96 K | T_max   298.5 K | t_ign err   2.8% | Y factor (median) 1.28x | majors RMSE 3.18e-02 | element drift (max along rollout) 0.00069% | 4 case(s)
+  stage w120 done | best val 1.1431e-04
+  (batch scale x4: batch 48, lr scaled by sqrt = x2.00)
+
+=== stage w250 | window 250 (50% anchored at t=0) | 30 epochs x 42 batches of 48 | lr 2.0e-05 -> 4.0e-06 ===
+  loss: trajectory huber(delta 0.2) + 0.1 x collocation | start-state noise 0
+  incoming model scores 1.8713e-03 on this stage's validation windows (bar to beat)
+  epoch    1/30 | train 4.5330e-03 (traj 1.445e-03, deriv 3.088e-02) | val 1.3326e-03 * | lr 2.00e-05 | solver: 84280 evals, max 255 steps/window | failed batches 0/42, windows 0 | 179s
+  epoch    2/30 | train 4.3983e-03 (traj 1.256e-03, deriv 3.142e-02) | val 1.6698e-03   | lr 1.98e-05 | solver: 84413 evals, max 258 steps/window | failed batches 0/42, windows 0 | 179s
+  epoch    4/30 | train 4.4570e-03 (traj 1.252e-03, deriv 3.205e-02) | val 1.0307e-03 * | lr 1.93e-05 | solver: 84658 evals, max 258 steps/window | failed batches 0/42, windows 0 | 179s
+  epoch    6/30 | train 4.0351e-03 (traj 8.642e-04, deriv 3.171e-02) | val 7.4833e-04 * | lr 1.85e-05 | solver: 84455 evals, max 257 steps/window | failed batches 0/42, windows 0 | 184s
+  epoch    8/30 | train 3.8520e-03 (traj 7.369e-04, deriv 3.115e-02) | val 9.3843e-04   | lr 1.74e-05 | solver: 84525 evals, max 258 steps/window | failed batches 0/42, windows 0 | 177s
+  epoch   10/30 | train 3.9998e-03 (traj 8.234e-04, deriv 3.176e-02) | val 1.0584e-03   | lr 1.60e-05 | solver: 84371 evals, max 257 steps/window | failed batches 0/42, windows 0 | 180s
+    [epoch 10] val continuous rollout: T_rmse  102.41 K | T_max   262.8 K | t_ign err   1.3% | Y factor (median) 1.22x | majors RMSE 2.53e-02 | element drift (max along rollout) 0.00057% | 4 case(s)
+  epoch   12/30 | train 3.9035e-03 (traj 9.021e-04, deriv 3.001e-02) | val 6.6026e-04 * | lr 1.45e-05 | solver: 84238 evals, max 254 steps/window | failed batches 0/42, windows 0 | 180s
+  epoch   14/30 | train 3.7233e-03 (traj 6.148e-04, deriv 3.108e-02) | val 6.3555e-04 * | lr 1.28e-05 | solver: 84273 evals, max 255 steps/window | failed batches 0/42, windows 0 | 183s
+  epoch   16/30 | train 3.5754e-03 (traj 5.226e-04, deriv 3.053e-02) | val 5.9837e-04 * | lr 1.12e-05 | solver: 84224 evals, max 256 steps/window | failed batches 0/42, windows 0 | 179s
+  epoch   18/30 | train 3.8219e-03 (traj 6.801e-04, deriv 3.142e-02) | val 5.8157e-04 * | lr 9.53e-06 | solver: 84399 evals, max 257 steps/window | failed batches 0/42, windows 0 | 178s
+  epoch   20/30 | train 3.8054e-03 (traj 6.374e-04, deriv 3.168e-02) | val 5.5686e-04 * | lr 8.00e-06 | solver: 84567 evals, max 257 steps/window | failed batches 0/42, windows 0 | 179s
+    [epoch 20] val continuous rollout: T_rmse   52.75 K | T_max   120.1 K | t_ign err   0.3% | Y factor (median) 1.13x | majors RMSE 1.14e-02 | element drift (max along rollout) 0.00038% | 4 case(s)
+  epoch   22/30 | train 3.3905e-03 (traj 4.576e-04, deriv 2.933e-02) | val 7.1441e-04   | lr 6.65e-06 | solver: 84343 evals, max 256 steps/window | failed batches 0/42, windows 0 | 177s
+  epoch   24/30 | train 3.6419e-03 (traj 4.170e-04, deriv 3.225e-02) | val 5.3059e-04 * | lr 5.53e-06 | solver: 84420 evals, max 257 steps/window | failed batches 0/42, windows 0 | 177s
+  epoch   26/30 | train 3.5705e-03 (traj 4.796e-04, deriv 3.091e-02) | val 5.6740e-04   | lr 4.69e-06 | solver: 84343 evals, max 255 steps/window | failed batches 0/42, windows 0 | 179s
+  epoch   28/30 | train 3.6441e-03 (traj 4.331e-04, deriv 3.211e-02) | val 5.9312e-04   | lr 4.17e-06 | solver: 84385 evals, max 256 steps/window | failed batches 0/42, windows 0 | 177s
+  epoch   30/30 | train 3.3149e-03 (traj 3.750e-04, deriv 2.940e-02) | val 5.0922e-04 * | lr 4.00e-06 | solver: 84308 evals, max 257 steps/window | failed batches 0/42, windows 0 | 177s
+    [epoch 30] val continuous rollout: T_rmse   50.91 K | T_max   118.0 K | t_ign err   0.4% | Y factor (median) 1.12x | majors RMSE 1.11e-02 | element drift (max along rollout) 0.00046% | 4 case(s)
+  stage w250 done | best val 5.0922e-04
+  (batch scale x4: batch 32, lr scaled by sqrt = x2.00)
+
+=== stage full | window FULL (550 pts) | 100 epochs x 8 batches of 32 | lr 1.0e-05 -> 1.0e-06 ===
+  loss: trajectory mse + 1 x majors mass-fraction MSE + 1.3 x collocation | start-state noise 0
+  incoming model scores 2.6375e-03 on this stage's validation windows (bar to beat)
+  epoch    1/100 | train 9.2982e-02 (traj 3.229e-03, majors-Y MSE 5.45e-04, deriv 6.904e-02) | val 6.8532e-03   | lr 1.00e-05 | solver: 123760 evals, max 559 steps/window | failed batches 0/8, windows 0 | 67s
+  epoch    2/100 | train 9.2309e-02 (traj 3.725e-03, majors-Y MSE 6.41e-04, deriv 6.814e-02) | val 3.5887e-03   | lr 9.99e-06 | solver: 123795 evals, max 557 steps/window | failed batches 0/8, windows 0 | 66s
+  epoch    4/100 | train 8.8506e-02 (traj 1.917e-03, majors-Y MSE 3.04e-04, deriv 6.661e-02) | val 1.4866e-03 * | lr 9.96e-06 | solver: 123802 evals, max 558 steps/window | failed batches 0/8, windows 0 | 67s
+  epoch    6/100 | train 8.9270e-02 (traj 1.559e-03, majors-Y MSE 2.53e-04, deriv 6.747e-02) | val 1.5482e-03   | lr 9.92e-06 | solver: 123858 evals, max 557 steps/window | failed batches 0/8, windows 0 | 66s
+  epoch    8/100 | train 8.5736e-02 (traj 1.616e-03, majors-Y MSE 2.37e-04, deriv 6.471e-02) | val 1.7433e-03   | lr 9.86e-06 | solver: 123795 evals, max 558 steps/window | failed batches 0/8, windows 0 | 66s
+  epoch   10/100 | train 8.6323e-02 (traj 1.504e-03, majors-Y MSE 2.54e-04, deriv 6.525e-02) | val 1.2746e-03 * | lr 9.78e-06 | solver: 123998 evals, max 560 steps/window | failed batches 0/8, windows 0 | 68s
+    [epoch 10] val continuous rollout: T_rmse   22.60 K | T_max    52.4 K | t_ign err   0.9% | Y factor (median) 1.10x | majors RMSE 7.94e-03 | element drift (max along rollout) 0.00069% | 4 case(s)
+  epoch   12/100 | train 8.8328e-02 (traj 1.585e-03, majors-Y MSE 2.78e-04, deriv 6.673e-02) | val 1.6873e-03   | lr 9.68e-06 | solver: 124019 evals, max 559 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   14/100 | train 8.6560e-02 (traj 1.519e-03, majors-Y MSE 2.71e-04, deriv 6.542e-02) | val 1.4471e-03   | lr 9.57e-06 | solver: 123928 evals, max 559 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   16/100 | train 8.4487e-02 (traj 1.473e-03, majors-Y MSE 2.59e-04, deriv 6.386e-02) | val 1.2222e-03 * | lr 9.44e-06 | solver: 123837 evals, max 561 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   18/100 | train 8.8582e-02 (traj 1.385e-03, majors-Y MSE 2.48e-04, deriv 6.707e-02) | val 1.3818e-03   | lr 9.30e-06 | solver: 123928 evals, max 561 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   20/100 | train 8.3594e-02 (traj 8.801e-04, majors-Y MSE 1.32e-04, deriv 6.363e-02) | val 1.4850e-03   | lr 9.14e-06 | solver: 123781 evals, max 557 steps/window | failed batches 0/8, windows 0 | 68s
+    [epoch 20] val continuous rollout: T_rmse   53.31 K | T_max   137.3 K | t_ign err   0.9% | Y factor (median) 1.12x | majors RMSE 1.37e-02 | element drift (max along rollout) 0.00056% | 4 case(s)
+  epoch   22/100 | train 8.5681e-02 (traj 1.043e-03, majors-Y MSE 1.66e-04, deriv 6.511e-02) | val 1.4156e-03   | lr 8.97e-06 | solver: 123788 evals, max 562 steps/window | failed batches 0/8, windows 0 | 70s
+  epoch   24/100 | train 8.8288e-02 (traj 2.486e-03, majors-Y MSE 4.79e-04, deriv 6.600e-02) | val 8.6738e-04 * | lr 8.78e-06 | solver: 123984 evals, max 560 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   26/100 | train 8.6177e-02 (traj 1.715e-03, majors-Y MSE 3.16e-04, deriv 6.497e-02) | val 1.6360e-03   | lr 8.58e-06 | solver: 123872 evals, max 561 steps/window | failed batches 0/8, windows 0 | 70s
+  epoch   28/100 | train 8.5952e-02 (traj 1.625e-03, majors-Y MSE 2.96e-04, deriv 6.487e-02) | val 3.3146e-03   | lr 8.37e-06 | solver: 123795 evals, max 560 steps/window | failed batches 0/8, windows 0 | 69s
+    ROLLBACK: val 3.315e-03 > 3 x best 8.674e-04 -> reloaded the best weights, lr halved 8.37e-06 -> 4.18e-06
+  epoch   30/100 | train 8.6481e-02 (traj 7.504e-04, majors-Y MSE 1.12e-04, deriv 6.595e-02) | val 1.2124e-03   | lr 4.07e-06 | solver: 123851 evals, max 560 steps/window | failed batches 0/8, windows 0 | 68s
+    [epoch 30] val continuous rollout: T_rmse   46.32 K | T_max   124.8 K | t_ign err   0.8% | Y factor (median) 1.09x | majors RMSE 1.27e-02 | element drift (max along rollout) 0.00076% | 4 case(s)
+  epoch   32/100 | train 8.4475e-02 (traj 7.163e-04, majors-Y MSE 1.05e-04, deriv 6.443e-02) | val 8.8300e-04   | lr 3.96e-06 | solver: 124026 evals, max 559 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   34/100 | train 8.6054e-02 (traj 5.332e-04, majors-Y MSE 7.11e-05, deriv 6.579e-02) | val 1.1631e-03   | lr 3.83e-06 | solver: 123858 evals, max 556 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   36/100 | train 8.5573e-02 (traj 6.637e-04, majors-Y MSE 9.49e-05, deriv 6.532e-02) | val 1.6523e-03   | lr 3.71e-06 | solver: 123858 evals, max 561 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   38/100 | train 8.3574e-02 (traj 4.799e-04, majors-Y MSE 5.76e-05, deriv 6.392e-02) | val 7.5026e-04 * | lr 3.58e-06 | solver: 123795 evals, max 557 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   40/100 | train 8.5426e-02 (traj 5.254e-04, majors-Y MSE 7.56e-05, deriv 6.531e-02) | val 7.4690e-04 * | lr 3.45e-06 | solver: 123753 evals, max 557 steps/window | failed batches 0/8, windows 0 | 69s
+    [epoch 40] val continuous rollout: T_rmse   23.66 K | T_max    59.2 K | t_ign err   0.4% | Y factor (median) 1.07x | majors RMSE 6.11e-03 | element drift (max along rollout) 0.00078% | 4 case(s)
+  epoch   42/100 | train 8.5255e-02 (traj 5.442e-04, majors-Y MSE 7.90e-05, deriv 6.516e-02) | val 7.3721e-04 * | lr 3.31e-06 | solver: 123928 evals, max 561 steps/window | failed batches 0/8, windows 0 | 70s
+  epoch   44/100 | train 8.5446e-02 (traj 4.966e-04, majors-Y MSE 6.89e-05, deriv 6.535e-02) | val 8.7142e-04   | lr 3.17e-06 | solver: 123928 evals, max 560 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   46/100 | train 8.4293e-02 (traj 6.440e-04, majors-Y MSE 1.04e-04, deriv 6.435e-02) | val 7.0032e-04 * | lr 3.03e-06 | solver: 123767 evals, max 556 steps/window | failed batches 0/8, windows 0 | 70s
+  epoch   48/100 | train 8.5375e-02 (traj 4.610e-04, majors-Y MSE 6.10e-05, deriv 6.532e-02) | val 6.8099e-04 * | lr 2.89e-06 | solver: 123984 evals, max 558 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   50/100 | train 8.5842e-02 (traj 5.346e-04, majors-Y MSE 7.66e-05, deriv 6.562e-02) | val 9.4231e-04   | lr 2.75e-06 | solver: 123970 evals, max 558 steps/window | failed batches 0/8, windows 0 | 68s
+    [epoch 50] val continuous rollout: T_rmse   31.18 K | T_max    83.8 K | t_ign err   0.4% | Y factor (median) 1.07x | majors RMSE 8.43e-03 | element drift (max along rollout) 0.00083% | 4 case(s)
+  epoch   52/100 | train 8.5387e-02 (traj 5.808e-04, majors-Y MSE 8.75e-05, deriv 6.524e-02) | val 7.5850e-04   | lr 2.61e-06 | solver: 124054 evals, max 558 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   54/100 | train 8.4385e-02 (traj 4.929e-04, majors-Y MSE 6.97e-05, deriv 6.453e-02) | val 6.8785e-04   | lr 2.47e-06 | solver: 123795 evals, max 559 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   56/100 | train 8.3905e-02 (traj 4.263e-04, majors-Y MSE 5.58e-05, deriv 6.421e-02) | val 7.3733e-04   | lr 2.33e-06 | solver: 123781 evals, max 558 steps/window | failed batches 0/8, windows 0 | 67s
+  epoch   58/100 | train 8.5529e-02 (traj 5.687e-04, majors-Y MSE 8.68e-05, deriv 6.535e-02) | val 8.5612e-04   | lr 2.19e-06 | solver: 123865 evals, max 558 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   60/100 | train 8.5828e-02 (traj 4.180e-04, majors-Y MSE 5.37e-05, deriv 6.570e-02) | val 6.8999e-04   | lr 2.05e-06 | solver: 123907 evals, max 560 steps/window | failed batches 0/8, windows 0 | 70s
+    [epoch 60] val continuous rollout: T_rmse   22.71 K | T_max    52.8 K | t_ign err   0.4% | Y factor (median) 1.07x | majors RMSE 6.16e-03 | element drift (max along rollout) 0.00073% | 4 case(s)
+  epoch   62/100 | train 8.3940e-02 (traj 4.414e-04, majors-Y MSE 6.26e-05, deriv 6.423e-02) | val 7.5406e-04   | lr 1.92e-06 | solver: 123984 evals, max 558 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   64/100 | train 8.5537e-02 (traj 4.042e-04, majors-Y MSE 5.39e-05, deriv 6.549e-02) | val 6.9389e-04   | lr 1.79e-06 | solver: 123998 evals, max 558 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   66/100 | train 8.3959e-02 (traj 5.131e-04, majors-Y MSE 7.84e-05, deriv 6.419e-02) | val 6.9684e-04   | lr 1.67e-06 | solver: 123928 evals, max 559 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   68/100 | train 8.6637e-02 (traj 3.924e-04, majors-Y MSE 5.19e-05, deriv 6.634e-02) | val 6.6984e-04 * | lr 1.54e-06 | solver: 123907 evals, max 558 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   70/100 | train 8.4392e-02 (traj 4.036e-04, majors-Y MSE 5.34e-05, deriv 6.461e-02) | val 6.3186e-04 * | lr 1.43e-06 | solver: 123970 evals, max 557 steps/window | failed batches 0/8, windows 0 | 68s
+    [epoch 70] val continuous rollout: T_rmse   22.22 K | T_max    53.6 K | t_ign err   0.4% | Y factor (median) 1.06x | majors RMSE 5.92e-03 | element drift (max along rollout) 0.00085% | 4 case(s)
+  epoch   72/100 | train 8.3100e-02 (traj 3.875e-04, majors-Y MSE 5.02e-05, deriv 6.363e-02) | val 6.7699e-04   | lr 1.32e-06 | solver: 123970 evals, max 560 steps/window | failed batches 0/8, windows 0 | 71s
+  epoch   74/100 | train 8.5236e-02 (traj 4.003e-04, majors-Y MSE 5.29e-05, deriv 6.526e-02) | val 6.3553e-04   | lr 1.21e-06 | solver: 123851 evals, max 557 steps/window | failed batches 0/8, windows 0 | 71s
+  epoch   76/100 | train 8.6318e-02 (traj 3.970e-04, majors-Y MSE 5.35e-05, deriv 6.609e-02) | val 7.0679e-04   | lr 1.11e-06 | solver: 123935 evals, max 557 steps/window | failed batches 0/8, windows 0 | 71s
+  epoch   78/100 | train 8.3934e-02 (traj 3.857e-04, majors-Y MSE 4.92e-05, deriv 6.427e-02) | val 7.0655e-04   | lr 1.02e-06 | solver: 123963 evals, max 561 steps/window | failed batches 0/8, windows 0 | 72s
+  epoch   80/100 | train 8.5088e-02 (traj 4.102e-04, majors-Y MSE 5.66e-05, deriv 6.514e-02) | val 7.8836e-04   | lr 9.30e-07 | solver: 123858 evals, max 557 steps/window | failed batches 0/8, windows 0 | 71s
+    [epoch 80] val continuous rollout: T_rmse   15.21 K | T_max    33.2 K | t_ign err   0.4% | Y factor (median) 1.07x | majors RMSE 4.77e-03 | element drift (max along rollout) 0.00092% | 4 case(s)
+  epoch   82/100 | train 8.5155e-02 (traj 3.980e-04, majors-Y MSE 5.41e-05, deriv 6.520e-02) | val 6.6215e-04   | lr 8.50e-07 | solver: 123774 evals, max 558 steps/window | failed batches 0/8, windows 0 | 72s
+  epoch   84/100 | train 8.4054e-02 (traj 4.091e-04, majors-Y MSE 5.52e-05, deriv 6.434e-02) | val 6.5098e-04   | lr 7.78e-07 | solver: 124082 evals, max 562 steps/window | failed batches 0/8, windows 0 | 67s
+  epoch   86/100 | train 8.4199e-02 (traj 3.823e-04, majors-Y MSE 5.09e-05, deriv 6.447e-02) | val 6.9089e-04   | lr 7.14e-07 | solver: 123991 evals, max 558 steps/window | failed batches 0/8, windows 0 | 72s
+  epoch   88/100 | train 8.3449e-02 (traj 3.846e-04, majors-Y MSE 5.04e-05, deriv 6.390e-02) | val 6.4496e-04   | lr 6.58e-07 | solver: 123914 evals, max 557 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch   90/100 | train 8.7182e-02 (traj 3.729e-04, majors-Y MSE 4.82e-05, deriv 6.678e-02) | val 6.3853e-04   | lr 6.10e-07 | solver: 123984 evals, max 559 steps/window | failed batches 0/8, windows 0 | 69s
+    [epoch 90] val continuous rollout: T_rmse   21.61 K | T_max    52.3 K | t_ign err   0.4% | Y factor (median) 1.06x | majors RMSE 5.85e-03 | element drift (max along rollout) 0.00092% | 4 case(s)
+  epoch   92/100 | train 8.5239e-02 (traj 3.680e-04, majors-Y MSE 4.95e-05, deriv 6.529e-02) | val 6.7564e-04   | lr 5.71e-07 | solver: 123893 evals, max 557 steps/window | failed batches 0/8, windows 0 | 73s
+  epoch   94/100 | train 8.4653e-02 (traj 3.837e-04, majors-Y MSE 5.08e-05, deriv 6.482e-02) | val 6.3285e-04   | lr 5.40e-07 | solver: 123907 evals, max 558 steps/window | failed batches 0/8, windows 0 | 68s
+  epoch   96/100 | train 8.3914e-02 (traj 3.897e-04, majors-Y MSE 5.18e-05, deriv 6.425e-02) | val 6.7843e-04   | lr 5.18e-07 | solver: 123844 evals, max 558 steps/window | failed batches 0/8, windows 0 | 70s
+  epoch   98/100 | train 8.3555e-02 (traj 3.688e-04, majors-Y MSE 4.84e-05, deriv 6.399e-02) | val 6.2740e-04 * | lr 5.04e-07 | solver: 123879 evals, max 558 steps/window | failed batches 0/8, windows 0 | 69s
+  epoch  100/100 | train 8.6614e-02 (traj 3.886e-04, majors-Y MSE 5.36e-05, deriv 6.633e-02) | val 6.6283e-04   | lr 5.00e-07 | solver: 123970 evals, max 561 steps/window | failed batches 0/8, windows 0 | 68s
+    [epoch 100] val continuous rollout: T_rmse   24.51 K | T_max    58.7 K | t_ign err   0.4% | Y factor (median) 1.07x | majors RMSE 6.49e-03 | element drift (max along rollout) 0.00075% | 4 case(s)
+  stage full done | best val 6.2740e-04
+
+=== final evaluation on TEST cases (true sample times) ===
+  continuous rollout (single solve from t=0): T_rmse   22.12 K | T_max    54.7 K | t_ign err   0.4% | Y factor (median) 1.07x | majors RMSE 6.52e-03 | element drift (max along rollout) 0.00065% | 60 case(s)
+  plot: checkpoints_v9_pre_s100/eval_case6_final_full.png
+  plot: checkpoints_v9_pre_s100/eval_case14_final_full.png
+  plot: checkpoints_v9_pre_s100/eval_case15_final_full.png
+  metrics: checkpoints_v9_pre_s100/final_full_metrics.json
+final model: checkpoints_v9_pre_s100/final_model.pt
+
+total wall time 223.7 min
