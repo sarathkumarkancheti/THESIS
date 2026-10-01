@@ -1,0 +1,2428 @@
+#!/usr/bin/env python3
+# %% [markdown]
+# # EXPERIMENT v9 -- v8 + controlled-return supervision off the data (checkpoints_v9)
+#
+# v8 with ONE change, in the collocation loss: besides the data points, the
+# field is supervised at states slightly OFF the data, with a target that
+# returns to the data at a controlled rate:
+#
+#     z' = z + delta                       (z a data state, |delta| ~ 0.005..0.3)
+#     v_target(z') = v_true(z) - K * delta,   K_k = RETURN_KAPPA * s_g(k)(z)
+#
+# s_g = the parent's speed in rate group g (1/s, normalized units), so the
+# pull-back rate of every variable is tied to how fast its own group moves at
+# that point -- the field off the data becomes "move like the nearby data,
+# and drift back to it", with no time scale faster than the data's own.
+# Why (pretrain_compare.py, g4's vs v8's pretrained field): the data only
+# define the field ON the trajectories; two fields equally accurate there
+# (v8's even better: ignition 1.8 % vs 3.9 %) differed just off it -- v8's had a
+# spot ~50x faster than its typical rate at the ignition front, where w8
+# windows drifted (max |z - z_true| ~ 1.9) and needed > 1000 solver steps, and
+# failed windows give no gradient.  The TRUE off-data field is no answer: it is
+# 4-230x faster than on the data and was measured unfittable and harmful
+# (augment_collocation.py header).  So the off-data field is SPECIFIED: a
+# smooth, controlled return (the slow-manifold idea of reduced chemistry).
+# ONLY THE FAST VARIABLES are perturbed (RETURN_VARIABLES "fast": every species
+# except T and MAJOR_SPECIES).  T and the majors say WHICH trajectory a state is
+# on; a different value there is another valid operating point, not an error.
+# Measured (8 local cases, 8k pretraining steps, best checkpoint, median error
+# on the data): perturbing ALL variables pulls validation cases towards the
+# nearest training case -- train 15.2 % / val 22.7 % vs 8.5 % / 12.6 % without
+# off-data points; fast variables only: 6.2 % / 12.2 %.
+# Settings: RETURN_FRACTION (share of collocation points, 0 = v8), RETURN_KAPPA,
+# RETURN_SIGMA_MIN / MAX, RETURN_PER_POINT.  The points are generated once at
+# start-up (no Cantera calls) for every case; train / val use their own cases.
+#
+# ---------------------------------------------------------------------------
+# v8 header:
+# # EXPERIMENT v8 -- v7 + exact element (and mass) conservation (checkpoints_v8)
+#
+# v7 with ONE change: the velocity the solver integrates is projected, at every
+# evaluation, onto the set of velocities that conserve the elements C, H, O
+# (every element present in the learned species):
+#
+#     sum_k M_ke dY_k/dt = 0     for every element e,  all learned species k
+#
+# M_ke = mass of element e per unit mass of species k.  In the model's
+# variables dY_k/dt = (Y_k + eps) ln10 s_k dz_k/dt, so the constraint is
+# LINEAR in the velocity, A(z) v = 0, and the projection is the orthogonal one
+# in z-space:  v <- v - A^T (A A^T)^-1 A v  (3x3 solve per state).
+#   * total mass follows: every learned species is made of C, H, O only and
+#     the inerts (N2, AR) are constant, so sum_k dY_k/dt = 0 as well;
+#   * the correction on species k is proportional to (Y_k + eps) * (its element
+#     content): it lands on the species that carry the element mass (H2, H2O,
+#     CO, CO2, CH4, O2); trace species are in the constraint but are barely
+#     moved -- they cannot carry an element imbalance;
+#   * Cantera's true velocity satisfies A v = 0, so at the true states the
+#     projection can only REDUCE the velocity error (orthogonal projection onto
+#     a subspace that contains the target);
+#   * the collocation loss stays on the network's raw rate / direction outputs
+#     (as in v7): pretraining is v7's; the trajectory stages train through the
+#     projection.  ELEMENT_CONSERVATION false = v7's model (the buffers are
+#     still saved, the projection is off).
+#   * remaining drift = solver error only (the conserved sums are linear in Y,
+#     the state is log Y), i.e. ~ the solver tolerance.
+# Why (error_map.py on checkpoints_v7_steam_g4): the tail error is inherited
+# -- restarted from the true tail start the end-T error is 0.4 K, and the true
+# equilibrium is a fixed point of the learned field -- while the element
+# composition drifts by H 10 %, C 5.8 %, O 4.4 % (mean, end of rollout), an
+# error the dynamics can never undo.
+# Default RATE_GROUPS is v7's best run: "T;CH4,O2;H2O" (4 groups).
+#
+# ---------------------------------------------------------------------------
+# v7 header:
+# # EXPERIMENT v7 -- grouped rates (checkpoints_v7)
+#
+# v4 with ONE change in the model: the single shared log-rate is replaced by
+# one shared log-rate PER GROUP of variables (RATE_GROUPS, default
+# "T;CH4,O2": group 1 = T, group 2 = CH4 + O2, group 3 = every other
+# variable).  Within a group the model is exactly v4's factorization,
+#     dz_k/dt = exp(r_g(z,P)) * h_k(z,P)      for k in group g,
+# each r_g bounded by that group's own data range, direction targets
+# normalized by the GROUP speed.
+# Why (next_step_diagnostic.py on the v4 checkpoints): with one shared rate,
+# the rate during induction is set by the fast radicals, so T, CH4 and O2 are
+# tiny components of the direction vector (|h| ~ 3e-2, 2e-3, 1e-3) and their
+# errors relative to their OWN rate were 17 / 133 / 240 % median in induction
+# already after pretraining (w250: 43 / 192 / 724 %).  In their own group
+# they are O(1) components.  A few groups only, unlike v5/v6 (a rate per
+# variable), whose rollouts were unstable or did not ignite.
+# Also (for feeds with steam + N2): INERT_SPECIES (default N2, AR) are taken
+# out of the learned state and carried per case from the initial state,
+# instead of v4's rule (drop only channels constant across ALL data, restore
+# them from case 0).
+# Everything else (data, losses, curriculum, flags) is v4.
+#
+# ---------------------------------------------------------------------------
+# v4 header (unchanged below):
+# # EXPERIMENT v4 -- run 2 (checkpoints_v4)
+#
+# Same model, data handling and curriculum w8 ... w250 as v3
+# (train_node_rate_field_v3.py; run 2 reuses run 1's pretraining and w8-w250
+# checkpoints, copied into checkpoints_v4).  What changed:
+#   * ONE full-trajectory stage from the w250 model: squared-error loss + majors
+#     mass-fraction term, no start-state noise, 32 trajectories per step,
+#     lr 3e-5 -> 3e-6, 200 epochs (at batch_scale 4) -- replaces run 1's
+#     "full" (Huber, noise) and the abandoned "full2" continuation;
+#   * every setting is a command-line flag (section 0), env vars still work;
+#   * final evaluation = continuous rollout only (--eval_reset for the reset
+#     rollout as a diagnostic); results named after the last stage;
+#   * --stop_after pretrain: pretraining only + derivative-accuracy report
+#     (network-size check); --noise_at_t0 (default true = as run in v3).
+#
+# # Autonomous Neural ODE for GRI-Mech partial oxidation -- corrected baseline
+#
+# Replacement for `train_multi_shooting_batched.py`.
+#
+# The model is, and stays, a genuine NODE:
+#
+#     dz/dt = F(z, P)          z = normalized [T, log10(Y_i)], P = pressure
+#
+# No time input, no latent space, no state->state mapping.  Time only ever
+# enters as the *integration variable*, and as the per-window duration that
+# converts d/dt into d/dtau for a batched solve (a change of variable, not a
+# network input).
+#
+# WHAT WAS WRONG BEFORE (each item is measured -- see
+# NODE_DIAGNOSIS_AND_FIXES.md for the numbers and the reasoning):
+#
+# 1. EVALUATION BUG.  `reset_rollout` / `continuous_rollout` integrated on a
+#    UNIFORM tau grid but compared/plotted against the NON-UNIFORM physical
+#    sample times.  A *perfect* model scored ~510 K T-RMSE on the continuous
+#    rollout and ~5.7 K on the w=20 reset rollout with that code.  Every
+#    rollout here is evaluated at the true sample times.
+#
+# 2. dz/dtau CLAMP.  Clamping dz/dtau to +-2 makes the fastest 15% of w=20
+#    windows unrepresentable (they need up to 1.2e6) AND kills the gradient
+#    exactly there (clamp is flat).  That is the direct cause of accuracy
+#    degrading monotonically with window length.  Removed; stability is
+#    obtained instead from a *physically* bounded rate (see RateField).
+#
+# 3. DERIVATIVE PARAMETERIZATION.  Predicting symlog10(dz/dt) with a Tanh
+#    head and decoding with 10**(.) makes the state derivative exponentially
+#    sensitive to the network output: the reported pretrain MSE of 1.1e-2
+#    corresponds to typical derivative errors of a FACTOR ~5.  Replaced by a
+#    factorization
+#           dz/dt = exp(r(z,P)) * h(z,P),
+#    r = bounded scalar log-rate (the local chemical time scale, in nats),
+#    h = linear O(1) direction vector.  Only one scalar is exponential, it is
+#    bounded by the data's own rate range, and the natural training signal is
+#    "relative speed error + direction error", which is exactly the error
+#    model that matters for trajectory accuracy.
+#
+# 4. DERIVATIVE LOSS AT PREDICTED STATES.  The old code compared
+#    f(z_predicted) against dz/dt_true(z_true) -- two different points.  Here
+#    the derivative (collocation) loss is evaluated at the TRUE states, which
+#    is what the exact Cantera derivatives actually supervise.
+#
+# 5. WINDOW RESAMPLING.  The old code linearly interpolated every window onto
+#    a uniform tau grid, i.e. trained on fabricated targets (up to 0.12 in
+#    scaled units == 0.6 decades in ignition windows) and threw away the real
+#    samples.  Here the solver is given each window's true taus, and batching
+#    is done with a per-sample adaptive stepper (batched_ode.py), which is
+#    exact and ~50x cheaper than forcing one shared adaptive grid on windows
+#    whose fast features sit at different places in tau.
+#
+# 6. LEARNING-RATE SCHEDULE.  Stages 2/3 started at 1e-5 / 2e-6 and spent
+#    ~700 epochs at the 1e-7 floor: those stages could not learn.  Each stage
+#    here has its own cosine schedule from a real LR.
+#
+# 7. DEAD CHANNELS.  AR and N2 are identically zero in this dataset; their
+#    scaled derivative target was -1, i.e. the Tanh head was asked to
+#    saturate.  Constant channels are dropped from the state and restored on
+#    output.
+#
+# Author note: everything below is the data-driven baseline only.  Mass /
+# element / energy conservation hooks are marked "PHYSICS HOOK" but are NOT
+# active -- get this baseline converged first.
+
+# %%
+import copy
+import json
+import math
+import os
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from torchdiffeq import odeint
+
+from batched_ode import odeint_per_sample, last_call_stats
+
+# ----------------------------------------------------------------------------
+# 0. COMMAND-LINE FLAGS
+# ----------------------------------------------------------------------------
+# Every setting in section 1 can be changed from the command line without
+# editing this file:
+#
+#     python train_node_rate_field_v4.py --dtype float64 --batch_scale 4
+#     python train_node_rate_field_v4.py --help          (all flags + defaults)
+#
+# * Flag name = the setting's name in lower case (HIDDEN_DIM -> --hidden_dim).
+#   --node_<name> is accepted as well (--node_dtype == --dtype).
+# * Precedence: command-line flag > environment variable NODE_<NAME> (so the
+#   old NODE_DATA_DIR=... style keeps working) > the default written below.
+# * Booleans: --eval_reset, --eval_reset true, --eval_reset 0, ...
+#   Lists: comma separated (--major_species CH4,O2,CO).  "none" for settings
+#   that can be switched off (--rollback_factor none).
+# * Stages (section 1, STAGES):  --stage NAME.FIELD=VALUE  changes one field
+#   of one stage and can be repeated, e.g.
+#       --stage full.epochs=150 --stage full.lr_max=2e-5
+#   Fields: window, epochs, per_epoch, batch, lr_max, lr_min, from_start,
+#   traj_loss, huber_delta, majors_y_weight, noise, lambda_deriv.
+#   --stop_after NAME runs the curriculum up to and including stage NAME.
+#   A stage that has already started keeps the batch / learning rates /
+#   windows per epoch it started with (stored in its checkpoint); a finished
+#   stage is not retrained.
+#
+# The flags are parsed only when this file is RUN (or by a script that sets
+# NODE_FORWARD_CLI = True before importing it, like diagnose_invariants.py);
+# a plain `import` uses environment variables and defaults.
+
+import argparse
+import difflib
+import sys
+
+
+def _cli_active():
+    main = sys.modules.get("__main__")
+    return __name__ == "__main__" or bool(getattr(main, "NODE_FORWARD_CLI", False))
+
+
+def _prescan(argv):
+    """--key value / --key=value / bare --key  ->  {key: [values...]}"""
+    raw, i = {}, 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--") and len(a) > 2:
+            key, eq, val = a[2:].partition("=")
+            key = key.replace("-", "_").lower()
+            if key.startswith("node_"):
+                key = key[5:]
+            if not eq:
+                if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+                    val = argv[i + 1]
+                    i += 1
+                else:
+                    val = None
+            raw.setdefault(key, []).append(val)
+        i += 1
+    return raw
+
+
+_ARGV = sys.argv[1:] if _cli_active() else []
+_RAW = _prescan(_ARGV)
+_SETTINGS = {}          # key -> metadata, in definition order
+_GROUP = ["general"]
+
+
+def _group(name):
+    _GROUP[0] = name
+
+
+def _to_bool(s):
+    s = str(s).strip().lower()
+    if s in ("1", "true", "yes", "on", "y", "t"):
+        return True
+    if s in ("0", "false", "no", "off", "n", "f"):
+        return False
+    raise ValueError(f"not a boolean: {s!r}")
+
+
+def _convert(s, kind):
+    if kind == "bool":
+        return _to_bool(s)
+    if kind.endswith("_or_none"):
+        if str(s).strip().lower() in ("none", "null", "off"):
+            return None
+        kind = kind[:-8]
+    if kind == "int":
+        return int(float(s))
+    if kind == "float":
+        return float(s)
+    if kind == "path":
+        return Path(s)
+    if kind == "list":
+        return [x.strip() for x in str(s).split(",") if x.strip()]
+    return str(s)
+
+
+def setting(name, default, kind=None, choices=None, env=None, help=""):
+    """Register a setting and return its value (flag > env > default)."""
+    if kind is None:
+        kind = {bool: "bool", int: "int", float: "float", str: "str",
+                list: "list"}.get(type(default), "path" if isinstance(default, Path)
+                                   else "str")
+    key = name.lower()
+    _SETTINGS[key] = dict(name=name, default=default, kind=kind, choices=choices,
+                          help=help, group=_GROUP[0])
+    value, source = default, "default"
+    for ev in [f"NODE_{name}"] + ([env] if env else []):
+        if os.environ.get(ev) not in (None, ""):
+            value, source = os.environ[ev], f"environment variable {ev}"
+    if key in _RAW:
+        value, source = _RAW[key][-1], f"flag --{key}"
+        if value is None:
+            if kind != "bool":
+                sys.exit(f"error: --{key} needs a value")
+            value = "true"
+    if source != "default":
+        try:
+            value = _convert(value, kind)
+        except ValueError as exc:
+            sys.exit(f"error: {source}: {exc}")
+    if choices is not None and value not in choices:
+        sys.exit(f"error: {name} must be one of {choices}, got {value!r}")
+    _SETTINGS[key]["value"] = value
+    return value
+
+
+def _finish_cli():
+    """--help, unknown-flag check, and a list of what was changed."""
+    rows = ["stages (values at batch_scale 1; change with --stage NAME.FIELD=VALUE):",
+            f"  {'name':6s} {'window':>6s} {'epochs':>6s} {'per_epoch':>9s} "
+            f"{'batch':>5s} {'lr_max':>8s} {'lr_min':>8s} {'from_start':>10s}  other"]
+    for st_ in STAGES:
+        w = "full" if st_[1] is None else st_[1]
+        pe = "all" if st_[3] is None else st_[3]
+        other = (", ".join(f"{k}={v}" for k, v in st_[8].items())
+                 if len(st_) > 8 else "")
+        rows.append(f"  {st_[0]:6s} {w!s:>6s} {st_[2]:>6d} {pe!s:>9s} {st_[4]:>5d} "
+                    f"{st_[5]:>8.1e} {st_[6]:>8.1e} {st_[7]:>10.2f}  {other}")
+    ap = argparse.ArgumentParser(
+        epilog="\n".join(rows), formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Autonomous rate-field NODE -- every setting is a flag. "
+                    "Precedence: flag > NODE_<NAME> environment variable > default.",
+        usage="python train_node_rate_field_v4.py [--flag value ...]   "
+              "(see below; --node_<flag> works too)",
+        allow_abbrev=False)
+    groups = {}
+    for key, s in _SETTINGS.items():
+        g = groups.get(s["group"]) or ap.add_argument_group(s["group"])
+        groups[s["group"]] = g
+        d = s["default"]
+        d = ",".join(d) if isinstance(d, list) else d
+        extra = f" {s['choices']}" if s["choices"] else ""
+        g.add_argument(f"--{key}", f"--node_{key}", dest=key, metavar="V",
+                       nargs="?" if s["kind"] == "bool" else None,
+                       help=f"{s['help']}{extra} (default: {d})")
+    g = groups.get("curriculum") or ap.add_argument_group("curriculum")
+    g.add_argument("--stage", action="append", metavar="NAME.FIELD=VALUE",
+                   help="change one field of one stage, repeatable "
+                        "(e.g. --stage full.epochs=150)")
+    g.add_argument("--stop_after", "--node_stop_after", metavar="NAME",
+                   help="run the curriculum up to and including this stage; "
+                        "'pretrain' = only pretraining + a derivative-accuracy "
+                        "report (e.g. to compare network sizes)")
+    known = set(_SETTINGS) | {"stage", "stop_after", "help"}
+    for k in _RAW:
+        if k not in known:
+            hint = difflib.get_close_matches(k, known, n=1)
+            sys.exit(f"error: unknown flag --{k}"
+                     + (f" (did you mean --{hint[0]}?)" if hint else "")
+                     + "   -- see --help")
+    ap.parse_args(_ARGV)          # prints --help, checks the remaining syntax
+    changed = [f"{s['name']}={s['value']}" for s in _SETTINGS.values()
+               if s["value"] != s["default"]]
+    if changed:
+        print("settings changed from the defaults: " + ", ".join(changed), flush=True)
+
+
+# ----------------------------------------------------------------------------
+# 1. CONFIGURATION  (every setting here is also a command-line flag)
+# ----------------------------------------------------------------------------
+
+_group("data and output")
+DATA_DIR = setting("DATA_DIR", Path(
+    "multipressure_hybrid_sampling_node_v3_induction/data"),   # output of data_generation_v3_induction.ipynb
+    help="folder with sampled_states_physical.npy etc.")
+OUT_DIR = setting("OUT_DIR", Path("checkpoints_v9"),
+                  help="checkpoints, plots, final model")
+# NOTE: pretraining is skipped if OUT_DIR/pretrain_best.pt already exists, and
+# every stage resumes from OUT_DIR/<stage>/latest.pt.  After changing the data
+# or the settings, use a NEW (empty) OUT_DIR.
+
+SEED = setting("SEED", 42, help="random seed (also fixes the train/val/test split)")
+TRAIN_FRAC = setting("TRAIN_FRAC", 0.70, help="fraction of cases used for training")
+VAL_FRAC = setting("VAL_FRAC", 0.15, help="fraction of cases used for validation")
+
+# --- representation -------------------------------------------------------
+_group("representation")
+LOG_EPS = setting("LOG_EPS", 1e-10, help="Y -> log10(Y + LOG_EPS)")
+# Y -> log10(Y + LOG_EPS).  This is the floor of the log space, and it decides
+# how much of the early induction phase is even REPRESENTABLE: two states that
+# differ only in species below the floor are the same point in z, so an
+# autonomous field cannot tell them apart.  Measured (see
+# NODE_DIAGNOSIS_AND_FIXES.md): with 1e-10, 100% of the continuous-rollout
+# error is accumulated before t ~ 1e-6 s -- a rollout started at t = 2e-6 s
+# reproduces ignition to 1-2% over the remaining four decades of time.
+MIN_HALF_RANGE = setting("MIN_HALF_RANGE", 0.5,
+                         help="decades; floor of the per-species scale")
+                         # Floors the per-channel scale so a nearly
+                         # constant species cannot amplify noise (the same
+                         # lesson your data-generation script learned).
+DROP_CONSTANT_CHANNELS = setting("DROP_CONSTANT_CHANNELS", True,
+                                 help="drop channels that never change (AR, N2)")
+INERT_SPECIES = setting("INERT_SPECIES", ["N2", "AR"],
+                        help="v7: species that do not react (constant in time within "
+                             "every case); they are not part of the learned state and "
+                             "are carried, per case, from the initial state")
+
+# --- network --------------------------------------------------------------
+_group("network (changing these needs a new OUT_DIR)")
+HIDDEN_DIM = setting("HIDDEN_DIM", 256, help="width of the hidden layers")
+N_HIDDEN_LAYERS = setting("N_HIDDEN_LAYERS", 4, help="number of hidden layers")
+ACTIVATION = setting("ACTIVATION", "silu", choices=["silu", "gelu", "tanh"],
+                     help="hidden-layer activation")
+RATE_MARGIN_NATS = setting("RATE_MARGIN_NATS", 2.0,
+                           help="head-room above/below the data's log-rate range")
+RATE_GROUPS = setting("RATE_GROUPS", "T;CH4,O2;H2O",
+                      help="v7: variables with their own shared log-rate; groups "
+                           "separated by ';', members by ','; all other variables "
+                           "form the last group (e.g. 'T,CH4,O2' = 2 groups); "
+                           "'none' = ONE shared rate for all variables (= v4's model)")
+ELEMENT_CONSERVATION = setting(
+    "ELEMENT_CONSERVATION", True,
+    help="v8: project the integrated velocity so that the elements (C, H, O) and "
+         "therefore the total mass are conserved exactly (false = v7's model)")
+
+# --- solver ---------------------------------------------------------------
+_group("solver and precision")
+DTYPE_NAME = setting("DTYPE", "float32", choices=["float32", "float64"],
+                     help="floating-point precision of model and solver")
+DTYPE = {"float64": torch.float64, "float32": torch.float32}[DTYPE_NAME]
+# float32 is the default because consumer GPUs (GTX/RTX, including the Ada
+# generation) run float64 32-64x slower.  It is safe here because physical
+# times are always handled in float64 (see TT below) and the solver lands
+# exactly on output times.  Checked: the same trained model gives identical
+# continuous-rollout metrics in float32 and float64 (ignition-delay error
+# 10.2% in both, T-RMSE 273.80 vs 273.79 K).  On A100/H100/V100-class GPUs,
+# where float64 is fast, --dtype float64 is the more conservative choice.
+# "custom": batched Dormand-Prince 5(4) with PER-SAMPLE step size
+#           (batched_ode.py).  Measured on this problem: a batch of 128 short
+#           windows costs 818 shared-grid function evaluations with
+#           torchdiffeq (every window pays for every other window's steps)
+#           versus ~14 per window on its own -- 58x more work, and 58x the
+#           stored activations, which is what makes the batch run out of
+#           memory.  Validated against torchdiffeq: 1e-10 on a linear problem
+#           with an analytic solution, and gradients agreeing to 2e-7 relative
+#           on this model.  Run solver_self_test() to re-check at any time.
+# "torchdiffeq": the reference implementation, kept for cross-checking.
+SOLVER_IMPL = setting("SOLVER_IMPL", "custom", choices=["custom", "torchdiffeq"],
+                      env="NODE_SOLVER", help="ODE solver implementation")
+RTOL_TRAIN = setting("RTOL_TRAIN", 1e-4, help="solver rtol during training")
+ATOL_TRAIN = setting("ATOL_TRAIN", 1e-6, help="solver atol during training")
+MAX_STEPS_TRAIN = setting("MAX_STEPS_TRAIN", 1000,
+                          help="step cap per training window")
+                                # per window; a window needing more than this
+                                # is pathological -- it is dropped from the
+                                # batch (reported as a failed window) instead
+                                # of being allowed to cost unbounded memory.
+EVAL_BUDGET = setting("EVAL_BUDGET", 150_000,
+                      help="sample-evaluations per training batch "
+                           "(x batch_scale); bounds GPU memory")
+                                # THIS is the knob that bounds peak memory,
+                                # because back-propagation stores activations
+                                # for every one of them (~10 kB each in
+                                # float32, ~20 kB in float64): 150k ~ 1.5 GB /
+                                # 3 GB.  If you get "CUDA out of memory" (e.g.
+                                # on a 4 GB card), use --eval_budget 60000.
+RTOL_EVAL = setting("RTOL_EVAL", None, kind="float_or_none",
+                    help="solver rtol for rollouts/evaluation; none = 1e-5 "
+                         "(float32) or 1e-6 (float64)")
+ATOL_EVAL = setting("ATOL_EVAL", None, kind="float_or_none",
+                    help="solver atol for rollouts/evaluation; none = 1e-7 "
+                         "(float32) or 1e-8 (float64)")
+if RTOL_EVAL is None:
+    RTOL_EVAL = 1e-6 if DTYPE == torch.float64 else 1e-5
+if ATOL_EVAL is None:
+    ATOL_EVAL = 1e-8 if DTYPE == torch.float64 else 1e-7
+# (float32 carries ~7 significant digits, so tighter evaluation tolerances
+#  than 1e-5/1e-7 would ask the error controller for noise.)
+MAX_STEPS_EVAL = setting("MAX_STEPS_EVAL", 200000, help="step cap for rollouts")
+MAX_STEPS_MONITOR = setting("MAX_STEPS_MONITOR", 5000,
+                            help="step cap of the monitoring rollouts (sanity check "
+                                 "and every ROLLOUT_EVERY epochs); a case that needs "
+                                 "more is reported as failed, without the slow "
+                                 "LSODA fallback (monitoring must not stall training)")
+
+# --- losses ---------------------------------------------------------------
+_group("losses")
+T_CHANNEL_WEIGHT = setting("T_CHANNEL_WEIGHT", 5.0,
+                           help="weight of the T channel relative to one species")
+                         # (other species get weight 1 each).
+MAJOR_SPECIES = setting("MAJOR_SPECIES", ["CH4", "O2", "CO", "CO2", "H2", "H2O"],
+                        help="species given MAJOR_SPECIES_WEIGHT (and used by "
+                             "the majors mass-fraction loss)")
+MAJOR_SPECIES_WEIGHT = setting("MAJOR_SPECIES_WEIGHT", 3.0,
+                               help="loss weight of each major species channel")
+# Why: with 26 species channels weighted equally, CH4 carries 1/31 of the
+# loss, so a direction error that is harmless for a trace radical but ruins
+# the fuel profile is barely penalised.  Raise/lower this if you care more
+# about trace radicals than about the majors.
+VELOCITY_FLOOR = setting("VELOCITY_FLOOR", 1e-2,
+                         help="1/s (normalized); defines 'at rest'")
+                         # the longest trajectory here is ~1 s, so a residual
+                         # speed of 1e-2 moves the state by <= 1e-2 of its
+                         # range (0.05 decades) over the whole tail.  It enters
+                         # the targets as S = sqrt(|v|^2 + FLOOR^2), which is
+                         # what makes the direction target h* = v/S decay
+                         # smoothly to zero at the equilibrium fixed point.
+SPEED_CAP = setting("SPEED_CAP", 1e10, help="1/s; cap on target rates (t=0 only)")
+                         # 1/s. At t=0 every intermediate species is EXACTLY
+                         # zero, so d(log10 Y)/dt = (dY/dt)/(LOG_EPS*ln10) is
+                         # singular: |dz/dt| reaches 9e11 there, 4 decades
+                         # above the 99th percentile (3e7), and it is also
+                         # unidentifiable (states below the log floor are
+                         # indistinguishable in z).  Measured: only 0.21% of
+                         # points exceed 1e10, and ALL of them are at sample
+                         # index 0 (t=0).  Capping the TARGET rate (direction
+                         # is untouched) means the model crosses that initial
+                         # layer in ~1e-10 s instead of ~1e-12 s -- still
+                         # below the first sampled time (2.5e-10 s), so it is
+                         # observationally equivalent, while bounding the
+                         # stiffness of the learned field.
+TRAJ_LOSS = setting("TRAJ_LOSS", "huber", choices=["huber", "mse"],
+                    help="trajectory loss of stages that do not set their own")
+TRAJ_HUBER_DELTA = setting("TRAJ_HUBER_DELTA", 0.2,
+                           help="normalized units; Huber delta of the trajectory loss")
+                             # A window that has
+                             # diverged has a residual of O(10-1000); under a
+                             # plain MSE a single such window dominates the
+                             # gradient of a whole batch of 128 (measured:
+                             # train loss 11.5 vs val 1.3e-3).  Beyond this
+                             # delta the loss is linear, so those windows
+                             # still push in the right direction without
+                             # drowning out the other 127.
+                             # "mse" = 0.5 * error^2, i.e. identical to Huber
+                             # for small errors -- it only removes the linear
+                             # cap.  Right once no window diverges any more
+                             # (stage full: 0 failed windows in every epoch).
+MAJORS_Y_WEIGHT = setting("MAJORS_Y_WEIGHT", 0.0,
+                          help="weight of the extra mass-fraction loss on the "
+                               "majors, for stages that do not set their own")
+# The trajectory loss lives in log10(Y) space, where 0.05 decades of CH4 --
+# a 12 % mass error -- is ~0.01 normalized units: nearly invisible.  This term
+# adds  w * mean((Y_pred - Y_true)^2)  over MAJOR_SPECIES in plain mass
+# fraction, the same quantity as the "majors RMSE" metric.  Its gradient is
+# proportional to Y, so it acts where a species carries mass and leaves the
+# trace levels to the log-space term.  At weight 1 it is roughly 20-30 % of
+# the full-trajectory loss of the current model.  Pure data matching -- no
+# conservation law is imposed.
+STATE_BOX_MARGIN = setting("STATE_BOX_MARGIN", 0.05, kind="float_or_none",
+                           help="invariant state box margin; none = off")
+                         # how far outside the training range of z the state
+                         # is allowed to go before the field is damped.
+STATE_BOX_SOFTNESS = setting("STATE_BOX_SOFTNESS", 0.02,
+                             help="softness of the state-box wall")
+# Together these make the box [-1-margin, 1+margin] an INVARIANT SET: the
+# component of the velocity that points out of the box is smoothly switched
+# off at the wall, so the state physically cannot run away (mass fractions
+# stay <= 1, T stays inside the range the data covers).  This replaces the old
+# dz/dtau clamp, and it is a much better place to put the bound: inside the
+# box -- i.e. everywhere the model is supposed to operate -- the field and its
+# gradients are completely untouched, whereas the dz/dtau clamp was active
+# (with zero gradient) on 15% of the *training* windows.
+W_RATE = setting("W_RATE", 1.0, help="collocation loss: weight of the log-rate part")
+W_DIR = setting("W_DIR", 1.0, help="collocation loss: weight of the direction part")
+HUBER_DELTA_RATE = setting("HUBER_DELTA_RATE", 1.0,
+                           help="nats; Huber delta of the log-rate loss")
+LAMBDA_DERIV_IN_STAGES = setting("LAMBDA_DERIV_IN_STAGES", 0.1,
+                                 help="weight of the collocation loss during "
+                                      "shooting (stages can set their own)")
+AUG_FRACTION = setting("AUG_FRACTION", 0.0,
+                       help="fraction of collocation points taken off-manifold "
+                            "(ablation only)")
+                             # off-manifold collocation points
+                             # (augment_collocation.py).  DEFAULT 0 ON
+                             # PURPOSE: the exact source term is violently
+                             # stiff transverse to the trajectory manifold
+                             # (0.02 decades of species perturbation already
+                             # multiplies |dz/dt| by ~100 and decorrelates its
+                             # direction -- run `augment_collocation.py
+                             # --probe`), so that field is neither fittable by
+                             # this network (relative error stayed ~100%) nor
+                             # desirable to fit (a model that reproduced it
+                             # would be as stiff as the true chemistry).  What
+                             # a surrogate needs off-manifold is a smoothed
+                             # return TO the manifold -- that is what
+                             # NOISE_STD_Z0 trains.  Set >0 only to reproduce
+                             # this negative result as an ablation.
+
+COMPILE_FIELD = setting(
+    "COMPILE_FIELD", False,
+    help="compile the model call the ODE solver makes with torch.compile (merges "
+         "the many tiny GPU operations; same model function; Linux + CUDA; falls "
+         "back to the normal call if compiling fails).  Check it first with "
+         "compile_check.py")
+RETURN_FRACTION = setting(
+    "RETURN_FRACTION", 0.3,
+    help="v9: fraction of collocation points that are controlled-return points "
+         "off the data (pretraining and every stage); 0 = v8")
+RETURN_KAPPA = setting(
+    "RETURN_KAPPA", 1.0,
+    help="v9: pull-back rate off the data, in units of the parent's group speed")
+RETURN_SIGMA_MIN = setting("RETURN_SIGMA_MIN", 0.005,
+                           help="v9: smallest perturbation size (normalized z units)")
+RETURN_SIGMA_MAX = setting("RETURN_SIGMA_MAX", 0.3,
+                           help="v9: largest perturbation size (normalized z units)")
+RETURN_K_MODE = setting(
+    "RETURN_K_MODE", "group", choices=["group", "component"],
+    help="v9: pull-back rate of variable k = KAPPA x its group's speed ('group') "
+         "or x its own speed |v_k| + floor ('component')")
+RETURN_VARIABLES = setting(
+    "RETURN_VARIABLES", "fast", choices=["fast", "all"],
+    help="v9: which variables are perturbed and pulled back: 'fast' = every "
+         "species except T and MAJOR_SPECIES (the radicals / intermediates, which "
+         "in the real chemistry relax quickly onto the slow manifold); 'all' = "
+         "every variable (also pulls T and the majors back to the parent case)")
+RETURN_N_PERTURBED = setting(
+    "RETURN_N_PERTURBED", 0,
+    help="v9: perturb only this many randomly chosen variables per point "
+         "(0 = all of them)")
+RETURN_PER_POINT = setting("RETURN_PER_POINT", 1,
+                           help="v9: controlled-return points per data point")
+
+# --- pretraining (derivative matching at the data points) -----------------
+_group("pretraining")
+PRETRAIN_STEPS = setting("PRETRAIN_STEPS", 60000, help="derivative-matching steps")
+PRETRAIN_BATCH = setting("PRETRAIN_BATCH", 2048, help="points per pretraining batch")
+PRETRAIN_LR = setting("PRETRAIN_LR", 2e-3, help="pretraining peak learning rate")
+PRETRAIN_LR_MIN = setting("PRETRAIN_LR_MIN", 1e-5, help="pretraining final learning rate")
+PRETRAIN_EVAL_EVERY = setting("PRETRAIN_EVAL_EVERY", 1000,
+                              help="pretraining validation interval (steps)")
+
+# --- multiple-shooting curriculum ----------------------------------------
+# (name, window_len_in_samples, epochs, windows_per_epoch, batch, lr_max,
+#  lr_min, from_start[, {per-stage loss settings}]).  window_len = None -> the
+# FULL trajectory (every training case from t = 0, once per epoch).
+# Per-stage loss settings, all optional (else the global setting is used):
+#   traj_loss "huber"|"mse", huber_delta, majors_y_weight, noise (start-state
+#   noise, NOISE_STD_Z0), lambda_deriv (LAMBDA_DERIV_IN_STAGES).
+# Batch sizes and learning rates here are the values at batch_scale 1; with
+# --batch_scale k the batch is x k and the learning rates x sqrt(k).
+#
+# Window length is counted in SAMPLES, which is the right unit here: the
+# sampler is arc-length based, so K samples is roughly a constant distance
+# travelled in state space regardless of how much physical time that takes.
+#
+# Windows are drawn at RANDOM start indices every epoch -- far better coverage
+# than a fixed tiling (your w=20/o=3 tiling reuses the same 28 windows per
+# case every epoch).  `from_start` is the FRACTION of each batch anchored at
+# t=0 instead: those are the windows that train the continuous rollout, since
+# a long rollout accumulates its error in the induction phase, which is only
+# ever entered from the true initial state.  Pure prefix stages cause
+# forgetting (measured: 6 epochs of prefix-only training took the reset
+# ignition error from 0.7% to 37.9%), hence a mix.
+STAGES = [
+    #  name      K     epochs  per_epoch  batch  lr_max  lr_min  from_start
+    # learning rates halved after the first full-dataset run: w8 at ~4e-4 was
+    # unstable with 213 training cases (see ROLLBACK_FACTOR).
+    ("w8",       8,    40,     16384,     64,    3e-4,   5e-5,   0.0),
+    ("w20",      20,   40,     12288,     48,    1.5e-4, 3e-5,   0.0),
+    ("w50",      50,   40,      8192,     32,    1e-4,   2e-5,   0.1),
+    ("w120",     120,  40,      4096,     16,    5e-5,   1e-5,   0.3),
+    ("w250",     250,  30,      2048,     12,    5e-5,   1e-5,   0.5),
+    # Full trajectories from t = 0 -- exactly the inference setting: one
+    # stage, one loss, starting from the w250 model.
+    #  * plain squared error (0.5 err^2): no window diverges at this point
+    #    (0 failed windows in every full-trajectory epoch of run 1), so the
+    #    Huber cap only stopped the loss from pushing on the large
+    #    post-ignition errors;
+    #  * + majors mass-fraction term (MAJORS_Y_WEIGHT): measured in run 1
+    #    (full2, epoch 8, 50 test cases) it halved the mass error
+    #    (|sum Y - 1| rms 17.8 % -> 7.1 %) and the element drift
+    #    (12.4 % -> 6.1 %), majors RMSE 8.2e-2 -> 7.0e-2;
+    #  * no start-state noise: every window starts at t = 0, where the initial
+    #    condition is exact in deployment, and a perturbed T0 / fuel ratio is a
+    #    DIFFERENT case (+-7 K on T0 alone moves the true ignition delay by
+    #    ~+-7 %) while the target stays the unperturbed trajectory;
+    #  * 32 trajectories per step at batch_scale 4 (base 8) and lr 3e-5 -> 3e-6
+    #    at batch_scale 4 (base 1.5e-5 -> 1.5e-6): run 1's full2 at 5e-5 with 8
+    #    trajectories per step was limited by update noise (train and val loss
+    #    flat and bouncing after epoch 6).  On a latency-bound GPU the larger
+    #    batch costs about the same per step, so an epoch is 7 steps, not 28.
+    # Run 1 (checkpoints_v3, for the record): "full" = Huber(0.2) + noise
+    # 0.01, 40 epochs x 28 steps of 8, lr 3e-5 -> 1e-5 (test: T RMSE 212 K,
+    # t_ign 10.5 %, majors RMSE 8.2e-2); "full2" continued it with the loss
+    # above at lr 5e-5 and was stopped at epoch 24 (best at epoch 8: T RMSE
+    # 213 K, majors RMSE 7.0e-2).
+    ("full",     None, 200,    None,      8,     1.5e-5, 1.5e-6, 1.0,
+     {"traj_loss": "mse", "majors_y_weight": 1.0, "noise": 0.0}),
+]
+_group("curriculum")
+GRAD_CLIP = setting("GRAD_CLIP", 1.0, help="gradient-norm clip")
+STAGE_WARMUP_FRACTION = setting(
+    "STAGE_WARMUP_FRACTION", 0.0,
+    help="linear learning-rate warm-up over this fraction of each stage's steps "
+         "(and again after a rollback, which resets the Adam moments); 0 = off "
+         "(as in the first v7 run). E.g. 0.05")
+LOG_FILE = setting("LOG_FILE", "training_log.txt",
+                   help="everything printed is also appended to OUT_DIR/<this>; "
+                        "'none' = no log file")
+BATCH_SCALE = setting("BATCH_SCALE", 1.0,
+                      help="multiplies every stage's batch (lr x sqrt) for "
+                           "stages that start after it is set")
+# Multiplies the batch size of every stage that STARTS after it is set (a stage
+# already in progress keeps the batch it started with -- see train_stage).
+# The number of windows per epoch is unchanged, so an epoch sees the same data
+# in BATCH_SCALE times fewer optimiser steps.  To compensate, the learning rate
+# is scaled by sqrt(BATCH_SCALE) -- the square-root rule for Adam-type
+# optimisers (Malladi et al., NeurIPS 2022): a k-times larger batch has
+# k-times lower gradient variance, and sqrt(k) keeps the per-sample noise
+# scale of the updates the same.  LR_CAP keeps the result well below the rate
+# at which stage w8 became unstable on the full dataset (~4e-4).
+# Pick the scale with benchmark_batch.py on the actual GPU.
+EVAL_BUDGET_TRAIN = int(EVAL_BUDGET * max(1.0, BATCH_SCALE))
+LR_CAP = setting("LR_CAP", 2e-4, help="upper limit on batch-scaled learning rates")
+WINDOWS_SCALE = setting("WINDOWS_SCALE", 1.0,
+                        help="multiplies windows per epoch (stages that start "
+                             "after it is set; not the full stages)")
+# Multiplies the number of windows per epoch (same rule: only stages that
+# start after it is set).  On a latency-bound GPU a training step costs the
+# same whatever the batch size (measured on an RTX A4500: 0.9 s per w50 step
+# for batch 32 and for batch 256), so epoch time ~ number of steps =
+# windows_per_epoch / batch.  BATCH_SCALE=4, WINDOWS_SCALE=2 therefore halves
+# the number of steps (2x faster) while each step averages over 4x more
+# windows, and every epoch sees 2x more data.
+ROLLBACK_FACTOR = setting("ROLLBACK_FACTOR", 3.0, kind="float_or_none",
+                          help="val this many times worse than best -> reload "
+                               "best, halve lr; none = off")
+                         # if a validation check comes out this many times WORSE
+                         # than the stage's best so far, the step that caused it
+                         # was a blow-up, not noise: reload the best weights,
+                         # reset the optimiser moments and halve the learning
+                         # rate.  Measured need: on the full 213-case dataset,
+                         # stage w8 at lr ~4e-4 reached val 2.8e-5 at epoch 10,
+                         # then jumped to 2.8e-4, 3.7e-4 and 2.5e-4 at epochs
+                         # 12, 16, 28 and spent 20 epochs climbing back.
+NOISE_STD_Z0 = setting("NOISE_STD_Z0", 0.01,
+                       help="normalized units; noise on window start states")
+                         # perturb each window's initial state by this many
+                         # normalized units during training; the TARGET stays
+                         # the unperturbed trajectory, so this teaches the
+                         # field to pull back onto the data manifold rather
+                         # than only to reproduce it.  That is the principled
+                         # way to control off-manifold behaviour here -- see
+                         # AUG_FRACTION for why supervising the TRUE
+                         # off-manifold field is the wrong target.  Sweep
+                         # 0.003 .. 0.03; it is the first knob to try when
+                         # the continuous rollout drifts.
+NOISE_AT_T0 = setting("NOISE_AT_T0", True,
+                      help="also add start-state noise to windows that start "
+                           "at t = 0 (false = only mid-trajectory windows)")
+# Known limitation of the curriculum as run (w50-w250, run 1): their anchored
+# windows (10-50 %) start at t = 0 and got the noise too, although the initial
+# condition is exact in deployment and a perturbed T0 / fuel ratio is a
+# different case.  Default True reproduces that run; for a complete retrain,
+# --noise_at_t0 false is the consistent choice.  (Stages with noise 0, like
+# "full", are unaffected either way.)
+VALIDATE_EVERY = setting("VALIDATE_EVERY", 2, help="epochs between validations")
+N_VAL_WINDOWS = setting("N_VAL_WINDOWS", 1024,
+                        help="fixed validation windows per windowed stage")
+ROLLOUT_EVERY = setting("ROLLOUT_EVERY", 10,
+                        help="epochs between continuous-rollout checks")
+N_ROLLOUT_CASES = setting("N_ROLLOUT_CASES", 4,
+                          help="validation cases in the continuous-rollout check")
+
+# --- evaluation -----------------------------------------------------------
+_group("evaluation")
+PLOT_CASES = setting("PLOT_CASES", 3, help="test cases plotted in the final evaluation")
+PLOT_SPECIES = setting("PLOT_SPECIES",
+                       ["CH4", "O2", "CO", "H2", "CO2", "H2O", "OH", "CH3", "HO2", "CH2O"],
+                       help="species shown in the plots")
+SPECIES_METRIC_FLOOR = setting("SPECIES_METRIC_FLOOR", 1e-8,
+                               help="ignore species below this in the factor metric")
+EVAL_RESET = setting("EVAL_RESET", False,
+                     help="also evaluate the reset rollout (restarts from true "
+                          "states; a diagnostic, not a deployment metric)")
+EVAL_RESET_WINDOW = setting("EVAL_RESET_WINDOW", 20, help="reset-rollout window length")
+EVAL_RESET_OVERLAP = setting("EVAL_RESET_OVERLAP", 3, help="reset-rollout overlap")
+
+# Smoke-test switch: --smoke (or NODE_SMOKE=1) runs a tiny version end to end.
+_group("general")
+SMOKE = setting("SMOKE", False, help="tiny end-to-end test run")
+if SMOKE:
+    PRETRAIN_STEPS = 400
+    PRETRAIN_EVAL_EVERY = 200
+    STAGES = [
+        ("w8",   8,   2, 512, 64, 5e-4, 1e-4, 0.0),
+        ("w50",  50,  2, 256, 32, 2e-4, 3e-5, 0.2),
+        ("w250", 250, 2, 128, 12, 1e-4, 2e-5, 0.5),
+        ("full", None, 2, None, 8, 3e-5, 1e-5, 1.0,
+         {"traj_loss": "mse", "majors_y_weight": 1.0, "noise": 0.0}),
+    ]
+    VALIDATE_EVERY = 1
+    N_VAL_WINDOWS = 128
+    ROLLOUT_EVERY = 2
+    N_ROLLOUT_CASES = 2
+    PLOT_CASES = 1
+
+_finish_cli()
+
+
+# --- stages as dicts, with the --stage / --stop_after edits applied --------
+_STAGE_FIELDS = {"window": "int_or_none", "epochs": "int", "per_epoch": "int_or_none",
+                 "batch": "int", "lr_max": "float", "lr_min": "float",
+                 "from_start": "float", "traj_loss": "str", "huber_delta": "float",
+                 "majors_y_weight": "float", "noise": "float",
+                 "lambda_deriv": "float"}
+
+
+def _build_stages(stages):
+    out = []
+    for s in stages:
+        d = dict(zip(["name", "window", "epochs", "per_epoch", "batch", "lr_max",
+                      "lr_min", "from_start"], s[:8]))
+        d.update(dict(traj_loss=TRAJ_LOSS, huber_delta=TRAJ_HUBER_DELTA,
+                      majors_y_weight=MAJORS_Y_WEIGHT, noise=NOISE_STD_Z0,
+                      lambda_deriv=LAMBDA_DERIV_IN_STAGES))
+        if len(s) > 8:
+            d.update(s[8])
+        out.append(d)
+    names = [d["name"] for d in out]
+    for spec in _RAW.get("stage", []):
+        try:
+            lhs, val = str(spec).split("=", 1)
+            nm, fld = lhs.split(".", 1)
+        except ValueError:
+            sys.exit(f"error: --stage expects NAME.FIELD=VALUE, got {spec!r}")
+        if nm not in names:
+            sys.exit(f"error: --stage: no stage {nm!r} (stages: {names})")
+        if fld not in _STAGE_FIELDS:
+            sys.exit(f"error: --stage: unknown field {fld!r} "
+                     f"(fields: {list(_STAGE_FIELDS)})")
+        v = _convert(val, _STAGE_FIELDS[fld])
+        if fld == "traj_loss" and v not in ("huber", "mse"):
+            sys.exit("error: traj_loss must be huber or mse")
+        out[names.index(nm)][fld] = v
+        print(f"stage {nm}: {fld} = {v}", flush=True)
+    stop = _RAW.get("stop_after", [None])[-1]
+    if stop == "pretrain":
+        return []
+    if stop is not None:
+        if stop not in names:
+            sys.exit(f"error: --stop_after: no stage {stop!r} (stages: {names})")
+        out = out[:names.index(stop) + 1]
+    return out
+
+
+STAGES = _build_stages(STAGES)
+STOP_AFTER_PRETRAIN = _RAW.get("stop_after", [None])[-1] == "pretrain"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class _Tee:
+    """Write to the console AND append to the run log."""
+
+    def __init__(self, stream, fh):
+        self.stream, self.fh = stream, fh
+
+    def write(self, s):
+        self.stream.write(s)
+        try:
+            self.fh.write(s)
+            self.fh.flush()
+        except Exception:
+            pass
+        return len(s)
+
+    def flush(self):
+        self.stream.flush()
+        try:
+            self.fh.flush()
+        except Exception:
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+if __name__ == "__main__" and str(LOG_FILE).strip().lower() not in ("none", ""):
+    import datetime as _dt
+    _log_path = OUT_DIR / str(LOG_FILE)
+    _fh = open(_log_path, "a", encoding="utf-8", buffering=1)
+    _changed = [f"{s_['name']}={s_['value']}" for s_ in _SETTINGS.values()
+                if s_["value"] != s_["default"]]
+    _fh.write("\n" + "=" * 88 + "\n"
+              + f"RUN STARTED {_dt.datetime.now().isoformat(timespec='seconds')}\n"
+              + f"command: {' '.join([Path(sys.argv[0]).name] + _ARGV)}\n"
+              + "settings changed from the defaults: "
+              + (", ".join(_changed) if _changed else "none") + "\n"
+              + "".join(f"stage edit: {e}\n" for e in _RAW.get("stage", []))
+              + "=" * 88 + "\n")
+    sys.stdout = _Tee(sys.stdout, _fh)
+    sys.stderr = _Tee(sys.stderr, _fh)
+    print(f"log: appending to {_log_path}", flush=True)
+
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"device: {device} | dtype: {DTYPE}", flush=True)
+
+
+# ----------------------------------------------------------------------------
+# 2. DATA
+# ----------------------------------------------------------------------------
+
+def load_augmented():
+    """Optional off-manifold collocation points (augment_collocation.py)."""
+    fs = DATA_DIR / "augmented_states_physical.npy"
+    fd = DATA_DIR / "augmented_derivatives_physical.npy"
+    if not (fs.exists() and fd.exists()):
+        return None, None
+    a_s = np.load(fs).astype(np.float64)
+    a_d = np.load(fd).astype(np.float64)
+    a_s[..., 1:] = np.clip(a_s[..., 1:], 0.0, None)
+    return a_s, a_d
+
+
+def load_raw():
+    states = np.load(DATA_DIR / "sampled_states_physical.npy").astype(np.float64)
+    derivs = np.load(DATA_DIR / "sampled_derivatives_physical.npy").astype(np.float64)
+    times = np.load(DATA_DIR / "time_points_physical.npy").astype(np.float64)
+    meta = np.load(DATA_DIR / "case_metadata.npz", allow_pickle=True)
+    species = [str(s) for s in meta["species_names"]]
+    pressures = meta["pressures"].astype(np.float64)
+    # species mass fractions must not be negative before the log transform
+    states[..., 1:] = np.clip(states[..., 1:], 0.0, None)
+    return states, derivs, times, species, pressures
+
+
+states_phys, derivs_phys, times_phys, species_names, pressures = load_raw()
+n_cases, n_points, n_raw = states_phys.shape
+print(f"data: {n_cases} cases x {n_points} points x {n_raw} channels "
+      f"({len(species_names)} species)", flush=True)
+print(f"time horizon per case: [{times_phys[:, -1].min():.2e}, "
+      f"{times_phys[:, -1].max():.2e}] s", flush=True)
+
+rng = np.random.default_rng(SEED)
+perm = rng.permutation(n_cases)
+n_tr = int(round(TRAIN_FRAC * n_cases))
+n_va = int(round(VAL_FRAC * n_cases))
+train_idx = np.sort(perm[:n_tr])
+val_idx = np.sort(perm[n_tr:n_tr + n_va])
+test_idx = np.sort(perm[n_tr + n_va:])
+print(f"split: train {len(train_idx)} | val {len(val_idx)} | test {len(test_idx)}",
+      flush=True)
+
+
+# --- forward / inverse transform -------------------------------------------
+# x = [T, log10(Y + eps)]   ->   z = (x - center) / scale   (roughly [-1, 1])
+
+def phys_to_log(states, derivs=None):
+    T = states[..., :1]
+    Y = states[..., 1:]
+    L = np.log10(Y + LOG_EPS)
+    x = np.concatenate([T, L], axis=-1)
+    if derivs is None:
+        return x
+    dT = derivs[..., :1]
+    dL = derivs[..., 1:] / ((Y + LOG_EPS) * np.log(10.0))
+    return x, np.concatenate([dT, dL], axis=-1)
+
+
+x_all, dx_all = phys_to_log(states_phys, derivs_phys)
+
+# Channel selection + scaling fitted on TRAIN cases only.
+x_train = x_all[train_idx]
+ch_min = x_train.min(axis=(0, 1))
+ch_max = x_train.max(axis=(0, 1))
+raw_span = ch_max - ch_min
+
+if DROP_CONSTANT_CHANNELS:
+    keep = raw_span > 1e-12
+    keep[0] = True
+else:
+    keep = np.ones(n_raw, dtype=bool)
+# v7: inert species (e.g. N2 in a steam/N2 feed) are constant in TIME within a
+# case but can differ BETWEEN cases (their mass fraction depends on O2/CH4 and
+# H2O/CH4).  They are removed from the learned state -- the true rate is
+# exactly zero, nothing to learn -- and each case's own initial value is used.
+inert = []
+for s_ in INERT_SPECIES:
+    if s_ not in species_names:
+        continue
+    k_ = 1 + species_names.index(s_)
+    y_ = states_phys[..., k_]
+    tspan = float(np.max(y_.max(axis=1) - y_.min(axis=1)))
+    if tspan <= 1e-9 * max(float(y_.max()), 1e-30) + 1e-14:
+        keep[k_] = False
+        inert.append(s_)
+    else:
+        print(f"warning: {s_} is listed as inert but changes in time (by up to "
+              f"{tspan:.2e}); it stays in the learned state", flush=True)
+dropped = [("T" if i == 0 else species_names[i - 1]) for i in np.flatnonzero(~keep)]
+if dropped:
+    print(f"not learned (constant in time, restored per case from the initial "
+          f"state): {dropped}", flush=True)
+CONST_BY_CASE = states_phys[:, 0, :].copy()     # [C, n_raw] initial state per case
+const_values = CONST_BY_CASE[0].copy()          # fallback when no case is given
+
+channel_names = ["T"] + species_names
+kept_names = [channel_names[i] for i in np.flatnonzero(keep)]
+n_state = int(keep.sum())
+
+center = 0.5 * (ch_max + ch_min)[keep]
+scale = 0.5 * raw_span[keep]
+# floor the species scales (channel 0 = T is in Kelvin and needs no floor)
+scale[1:] = np.maximum(scale[1:], MIN_HALF_RANGE)
+scale[0] = max(scale[0], 1.0)
+
+z_all = (x_all[..., keep] - center) / scale
+v_all = dx_all[..., keep] / scale            # dz/dt, 1/s, normalized units
+
+p_center = 0.5 * (pressures[train_idx].max() + pressures[train_idx].min())
+p_scale = max(0.5 * (pressures[train_idx].max() - pressures[train_idx].min()), 1e-9)
+p_all = (pressures - p_center) / p_scale
+
+print(f"state dim: {n_state} | |z| max on train: {np.abs(z_all[train_idx]).max():.2f}",
+      flush=True)
+
+# --- element matrix (v8) ----------------------------------------------------
+import re as _re
+_ATOMIC_W = {"C": 12.011, "H": 1.008, "O": 15.999, "N": 14.007, "AR": 39.948,
+             "HE": 4.0026}
+
+
+def element_counts(name):
+    """GRI-style species name -> {element: atoms} ('CH2(S)' -> CH2, 'AR')."""
+    u = name.upper()
+    if u in ("AR", "HE"):
+        return {u: 1}
+    base = _re.sub(r"\(.*?\)", "", u)
+    out = {}
+    for el, n in _re.findall(r"(AR|HE|[CHON])(\d*)", base):
+        out[el] = out.get(el, 0) + (int(n) if n else 1)
+    if _re.sub(r"(AR|HE|[CHON])\d*", "", base):
+        sys.exit(f"error: cannot read the elements of species {name!r} for the "
+                 f"element-conservation projection")
+    return out
+
+
+_counts = [element_counts(s_) for s_ in species_names]
+ELEMENTS = [e for e in ("C", "H", "O", "N")
+            if any(e in c_ for k_, c_ in enumerate(_counts) if keep[1 + k_])]
+M_full = np.zeros((len(species_names), len(ELEMENTS)))       # [species, elements]
+for k_, c_ in enumerate(_counts):
+    w_k = sum(_ATOMIC_W[e] * n for e, n in c_.items())
+    for j_, e in enumerate(ELEMENTS):
+        M_full[k_, j_] = c_.get(e, 0) * _ATOMIC_W[e] / w_k
+# per kept variable (row 0 = T -> zeros)
+M_kept = np.zeros((n_state, len(ELEMENTS)))
+for j_, ch in enumerate(np.flatnonzero(keep)):
+    if ch > 0:
+        M_kept[j_] = M_full[ch - 1]
+# check on the data itself: elements conserved along every true trajectory,
+# and the true derivatives satisfy the constraint
+_b = np.einsum("cnk,ke->cne", states_phys[..., 1:], M_full)
+_drift = np.abs(_b - _b[:, :1]) / np.maximum(_b[:, :1], 1e-30)
+_dY = derivs_phys[..., 1:]
+_res = np.abs(np.einsum("cnk,ke->cne", _dY, M_full)) / np.maximum(
+    np.einsum("cnk,ke->cne", np.abs(_dY), M_full), 1e-300)
+print(f"elements {ELEMENTS}: largest drift along the TRUE trajectories "
+      f"{100*_drift.max():.2e} % | true derivatives: median relative "
+      f"element residual {np.median(_res):.1e}"
+      + (" | projection ON (v8)" if ELEMENT_CONSERVATION else " | projection OFF"),
+      flush=True)
+if _drift.max() > 1e-3:
+    print("warning: the data itself does not conserve the elements to 0.1 % -- "
+          "check the species / element table", flush=True)
+
+# --- rate groups (v7) -------------------------------------------------------
+_groups = ([] if str(RATE_GROUPS).strip().lower() in ("none", "") else
+           [[x.strip() for x in g_.split(",") if x.strip()]
+            for g_ in str(RATE_GROUPS).split(";") if g_.strip()])
+_seen = set()
+for g_ in _groups:
+    for x in g_:
+        if x not in kept_names:
+            sys.exit(f"error: RATE_GROUPS: {x!r} is not a state variable "
+                     f"(variables: {kept_names})")
+        if x in _seen:
+            sys.exit(f"error: RATE_GROUPS: {x!r} is in two groups")
+        _seen.add(x)
+g_idx = np.full(n_state, len(_groups), dtype=np.int64)       # rest -> last group
+for gi_, g_ in enumerate(_groups):
+    for x in g_:
+        g_idx[kept_names.index(x)] = gi_
+N_GROUPS = len(_groups) + 1
+GROUP_NAMES = ["+".join(g_) for g_ in _groups] + ["rest"]
+if not (g_idx == len(_groups)).any():
+    sys.exit("error: RATE_GROUPS leaves no variable for the last group")
+
+
+def group_speed(v):
+    """[..., S] -> [..., G]: sqrt(sum_{k in g} v_k^2 + FLOOR^2)."""
+    out = np.stack([np.sqrt((v[..., g_idx == g] ** 2).sum(-1) + VELOCITY_FLOOR ** 2)
+                    for g in range(N_GROUPS)], axis=-1)
+    return out
+
+
+# --- log-rate statistics (per group) ---------------------------------------
+speed_train = np.sqrt((v_all[train_idx] ** 2).sum(-1) + VELOCITY_FLOOR ** 2)
+gspeed_train = group_speed(v_all[train_idx])                    # [c, N, G]
+r_train = np.log(np.minimum(gspeed_train, SPEED_CAP))           # [c, N, G]
+R_LO = [float(r_train[..., g].min()) - 1.0 - RATE_MARGIN_NATS for g in range(N_GROUPS)]
+R_HI = [float(r_train[..., g].max()) + RATE_MARGIN_NATS for g in range(N_GROUPS)]
+R_INIT = [float(np.median(r_train[..., g])) for g in range(N_GROUPS)]
+frac_capped = float((gspeed_train > SPEED_CAP).mean())
+for g in range(N_GROUPS):
+    print(f"rate group {g} ({GROUP_NAMES[g]}, {int((g_idx == g).sum())} variables): "
+          f"log-rate data [{r_train[..., g].min():.2f}, {r_train[..., g].max():.2f}] "
+          f"nats, model bounded to [{R_LO[g]:.2f}, {R_HI[g]:.2f}]", flush=True)
+print(f"{100*frac_capped:.2f}% of group target rates capped at {SPEED_CAP:.0e} 1/s",
+      flush=True)
+
+# channel weights (used in every loss)
+ch_w = np.ones(n_state)
+ch_w[0] = T_CHANNEL_WEIGHT
+for _j, _name in enumerate(kept_names):
+    if _name in MAJOR_SPECIES:
+        ch_w[_j] = MAJOR_SPECIES_WEIGHT
+ch_w = ch_w / ch_w.sum() * n_state
+
+# --- tensors ---------------------------------------------------------------
+Z = torch.tensor(z_all, dtype=DTYPE, device=device)          # [C, N, S]
+V = torch.tensor(v_all, dtype=DTYPE, device=device)          # [C, N, S]
+# Physical times are ALWAYS kept in float64, whatever DTYPE is: a window that
+# starts at t0 = 1e-3 s and has samples 1e-9 s apart needs (t - t0) to ~9
+# significant digits, which float32 (7 digits) cannot give.  Durations and
+# taus are computed in float64 and only then cast to DTYPE.
+TT = torch.tensor(times_phys, dtype=torch.float64, device=device)    # [C, N]
+PP = torch.tensor(p_all, dtype=DTYPE, device=device)         # [C]
+CHW = torch.tensor(ch_w, dtype=DTYPE, device=device)         # [S]
+# majors in plain mass fraction (for the majors_y_weight loss term)
+MAJ_Z_IDX = torch.tensor([kept_names.index(s_) for s_ in MAJOR_SPECIES
+                          if s_ in kept_names], dtype=torch.long, device=device)
+MAJ_CENTER = torch.tensor(center, dtype=DTYPE, device=device)[MAJ_Z_IDX]
+MAJ_SCALE = torch.tensor(scale, dtype=DTYPE, device=device)[MAJ_Z_IDX]
+
+aug_states, aug_derivs = (None, None) if RETURN_FRACTION > 0 else load_augmented()
+if RETURN_FRACTION > 0:
+    if AUG_FRACTION > 0:
+        sys.exit("error: RETURN_FRACTION and AUG_FRACTION are two different kinds of "
+                 "off-data points -- use one of them")
+    # v9: controlled-return points.  For every data point: a perturbation whose
+    # size is log-uniform in [SIGMA_MIN, SIGMA_MAX] (normalized z units), kept
+    # inside the state box; target = parent velocity - K * delta.
+    _gr = torch.Generator(device="cpu")
+    _gr.manual_seed(SEED + 1)
+    _zc = torch.tensor(z_all, dtype=torch.float64)                  # [C, N, S]
+    _vc = torch.tensor(v_all, dtype=torch.float64)
+    _gsp = torch.tensor(np.minimum(group_speed(v_all), SPEED_CAP))   # [C, N, G]
+    if RETURN_K_MODE == "group":
+        _K = RETURN_KAPPA * _gsp[..., torch.as_tensor(g_idx)]        # [C, N, S]
+    else:
+        _K = RETURN_KAPPA * (_vc.abs().clamp(max=SPEED_CAP) + VELOCITY_FLOOR)
+    _hi = 1.0 + (STATE_BOX_MARGIN or 0.0)
+    _zs, _vs = [], []
+    for _ in range(int(RETURN_PER_POINT)):
+        _u = torch.rand(_zc.shape[:2] + (1,), generator=_gr, dtype=torch.float64)
+        _sig = RETURN_SIGMA_MIN * (RETURN_SIGMA_MAX / RETURN_SIGMA_MIN) ** _u
+        _d = _sig * torch.randn(_zc.shape, generator=_gr, dtype=torch.float64)
+        if RETURN_VARIABLES == "fast":
+            # T and the majors define WHICH trajectory (operating point) a state
+            # is on: a different value there is another valid case, not an
+            # error, so it must not be pulled back to the parent
+            _fast = torch.tensor([0.0 if (nm == "T" or nm in MAJOR_SPECIES) else 1.0
+                                  for nm in kept_names], dtype=torch.float64)
+            _d = _d * _fast
+        if int(RETURN_N_PERTURBED) > 0:
+            # keep the n largest of a random ranking -> n random variables per point
+            _rk = torch.rand(_zc.shape, generator=_gr, dtype=torch.float64)
+            _th = torch.topk(_rk, int(RETURN_N_PERTURBED), dim=-1).values[..., -1:]
+            _d = _d * (_rk >= _th)
+        _zp = (_zc + _d).clamp(-_hi, _hi)
+        _zs.append(_zp)
+        _vs.append(_vc - _K * (_zp - _zc))
+    AZ = torch.cat(_zs, dim=1).to(device, DTYPE)                     # [C, N*P, S]
+    AV = torch.cat(_vs, dim=1).to(device, DTYPE)
+    n_aug_points = AZ.shape[1]
+    AUG_FRACTION = float(RETURN_FRACTION)
+    print(f"controlled-return points (v9): {AZ.shape[0]} x {n_aug_points}, "
+          f"perturbation {RETURN_SIGMA_MIN:g}..{RETURN_SIGMA_MAX:g} (log-uniform), "
+          f"variables: {RETURN_VARIABLES}, pull-back {RETURN_KAPPA:g} x "
+          f"{'group' if RETURN_K_MODE == 'group' else 'own'} speed, "
+          f"{100*RETURN_FRACTION:.0f}% of "
+          f"every collocation batch", flush=True)
+    del _zc, _vc, _gsp, _K, _zs, _vs
+elif aug_states is not None and AUG_FRACTION > 0:
+    ax, adx = phys_to_log(aug_states, aug_derivs)
+    AZ = torch.tensor((ax[..., keep] - center) / scale, dtype=DTYPE, device=device)
+    AV = torch.tensor(adx[..., keep] / scale, dtype=DTYPE, device=device)
+    n_aug_points = AZ.shape[1]
+    print(f"augmented collocation points: {AZ.shape[0]} x {n_aug_points} "
+          f"(|z| max {AZ.abs().max():.2f})", flush=True)
+else:
+    AZ = AV = None
+    n_aug_points = 0
+    if AUG_FRACTION > 0:
+        print("no augmented collocation points found -- run "
+              "augment_collocation.py to create them (strongly recommended, "
+              "see the header of that file)", flush=True)
+
+G_IDX = torch.tensor(g_idx, device=device)                   # [S] group of each variable
+
+
+def _targets(Vx):
+    """v7: per-GROUP speed, direction normalized by the group speed, one
+    log-rate target per group; SPEED (total) is kept for the relative-error
+    metric."""
+    sp = torch.sqrt((Vx ** 2).sum(-1) + VELOCITY_FLOOR ** 2)                   # [C, N]
+    gs = torch.stack([torch.sqrt((Vx[..., G_IDX == g] ** 2).sum(-1) + VELOCITY_FLOOR ** 2)
+                      for g in range(N_GROUPS)], dim=-1)                      # [C, N, G]
+    gs_c = torch.clamp(gs, max=SPEED_CAP)
+    h = Vx / gs[..., G_IDX]                                   # |h*_group| <= 1
+    v_t = h * gs_c[..., G_IDX]                                # capped target velocity
+    sp_c = torch.sqrt((v_t ** 2).sum(-1) + VELOCITY_FLOOR ** 2)
+    return sp, sp_c, h, torch.log(gs_c), v_t
+
+
+# SPEED_C: total speed of the capped target (denominator of the relative
+# error); R_TGT: [C, N, G] log-rate per group; H_TGT: group-normalized.
+SPEED, SPEED_C, H_TGT, R_TGT, V_TGT = _targets(V)
+
+if AZ is not None:
+    A_SPEED, A_SPEED_C, A_H_TGT, A_R_TGT, A_V_TGT = _targets(AV)
+
+train_t = torch.tensor(train_idx, device=device)
+val_t = torch.tensor(val_idx, device=device)
+
+
+def z_to_physical(z, case_id=None, const=None):
+    """[..., n_state] normalized -> [..., n_raw] physical (T [K], Y [-]).
+
+    Channels that are not learned (inert / constant) are filled from `const`
+    (a physical [T, Y...] vector), else from case `case_id`'s initial state,
+    else from case 0 (only right when those channels are the same in every
+    case -- pass the case whenever it is known)."""
+    z = np.asarray(z)
+    x = z * scale + center                      # [T, log10(Y + eps)] for kept
+    out = np.empty(z.shape[:-1] + (n_raw,), dtype=np.float64)
+    if const is not None:
+        out[...] = np.asarray(const, dtype=np.float64)
+    elif case_id is not None:
+        out[...] = CONST_BY_CASE[int(case_id)]
+    else:
+        out[...] = const_values
+    T = np.empty(z.shape[:-1] + (1,))
+    Y = out[..., 1:].copy()
+    kept_ix = np.flatnonzero(keep)
+    for j, ch in enumerate(kept_ix):
+        if ch == 0:
+            T[..., 0] = x[..., j]
+        else:
+            Y[..., ch - 1] = np.clip(10.0 ** x[..., j] - LOG_EPS, 0.0, None)
+    return np.concatenate([T, Y], axis=-1)
+
+
+# ----------------------------------------------------------------------------
+# 3. MODEL:  dz/dt = exp(r(z,P)) * h(z,P)
+# ----------------------------------------------------------------------------
+
+class RateField(nn.Module):
+    """Autonomous conditioned vector field.
+
+    Outputs are factorized into a bounded scalar LOG-RATE r (how fast the
+    chemistry is moving at this state, in nats of 1/s) and an O(1) DIRECTION
+    h (which way, and the relative magnitude per channel).  This is the whole
+    reason the network can cover ~16 decades of dz/dt without the exponential
+    output sensitivity of a symlog head: only r is exponentiated, r is bounded
+    by the data's own rate range, and the loss decomposes into a relative
+    speed error plus a direction error -- the error model that actually
+    controls trajectory accuracy.
+    """
+
+    def __init__(self, state_dim, hidden=HIDDEN_DIM, layers=N_HIDDEN_LAYERS,
+                 r_lo=R_LO, r_hi=R_HI, r_init=None):
+        # v7: r_lo / r_hi / r_init are lists, one entry per rate group
+        super().__init__()
+        act = {"silu": nn.SiLU, "gelu": nn.GELU, "tanh": nn.Tanh}[ACTIVATION]
+        seq, d = [], state_dim + 1           # + pressure
+        for _ in range(layers):
+            seq += [nn.Linear(d, hidden), act()]
+            d = hidden
+        self.trunk = nn.Sequential(*seq)
+        self.head_r = nn.Linear(hidden, N_GROUPS)
+        self.head_h = nn.Linear(hidden, state_dim)
+        self.register_buffer("r_lo", torch.tensor(r_lo, dtype=DTYPE))
+        self.register_buffer("r_hi", torch.tensor(r_hi, dtype=DTYPE))
+        self.register_buffer("g_idx", G_IDX.clone())
+        # v8: element-conservation projection (buffers are saved with the model,
+        # so analysis scripts and the GUI apply exactly what was trained)
+        smask = np.zeros(state_dim)
+        smask[1:] = 1.0                                     # species channels
+        self.register_buffer("elem_M", torch.tensor(M_kept, dtype=DTYPE))
+        self.register_buffer("elem_center", torch.tensor(center * smask, dtype=DTYPE))
+        self.register_buffer("elem_scale", torch.tensor(scale, dtype=DTYPE))
+        self.register_buffer("elem_smask", torch.tensor(smask, dtype=DTYPE))
+        self.register_buffer("elem_on", torch.tensor(1.0 if ELEMENT_CONSERVATION else 0.0,
+                                                     dtype=DTYPE))
+        self._elem_on = bool(ELEMENT_CONSERVATION)
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight, gain=0.8)
+                nn.init.zeros_(m.bias)
+        # small (not zero) direction head: zero would leave dv/dr = 0, i.e. no
+        # gradient at all for the rate head at initialization.
+        nn.init.xavier_uniform_(self.head_h.weight, gain=0.05)
+        if r_init is not None:                 # start at each group's median rate
+            nn.init.zeros_(self.head_r.weight)
+            with torch.no_grad():
+                for g, (ri, lo, hi) in enumerate(zip(r_init, r_lo, r_hi)):
+                    frac = min(max((float(ri) - lo) / (hi - lo), 1e-3), 1 - 1e-3)
+                    self.head_r.bias[g] = math.log(frac / (1 - frac))
+
+    def forward(self, z, p):
+        """z [..., S], p [..., 1] -> r [..., G] (one log-rate per group), h [..., S]"""
+        f = self.trunk(torch.cat([z, p], dim=-1))
+        r = self.r_lo + (self.r_hi - self.r_lo) * torch.sigmoid(self.head_r(f))
+        h = self.head_h(f)
+        return r, h
+
+    def raw_velocity(self, z, p):
+        """dz/dt without the box gate: exp(r_group(k)) * h_k."""
+        r, h = self.forward(z, p)
+        return torch.exp(r)[..., self.g_idx] * h
+
+    def velocity(self, z, p):
+        v = self.raw_velocity(z, p)
+        if STATE_BOX_MARGIN is not None:
+            hi = 1.0 + STATE_BOX_MARGIN
+            w = STATE_BOX_SOFTNESS
+            gate_up = torch.sigmoid((hi - z) / w)     # -> 0 at the upper wall
+            gate_dn = torch.sigmoid((z + hi) / w)     # -> 0 at the lower wall
+            v = torch.where(v > 0, v * gate_up, v * gate_dn)
+        if self._elem_on:
+            v = self.conserve_elements(z, v)
+        return v
+
+    def element_matrix_at(self, z):
+        """A [..., S, E]: d(element mass fraction e)/dt = sum_k A_ke v_k."""
+        x = (z * self.elem_scale + self.elem_center) * self.elem_smask
+        yp = torch.pow(10.0, x.clamp(max=1.0)) * self.elem_smask     # Y + eps
+        a = yp * (math.log(10.0) * self.elem_scale)
+        return a.unsqueeze(-1) * self.elem_M
+
+    def conserve_elements(self, z, v):
+        """Orthogonal projection (in z) of v onto {A(z) v = 0}: the smallest
+        change of the velocity that conserves every element exactly.
+
+        v' = v - A lam,  (A^T A) lam = A^T v.  With A_se = a_s M_se:
+            G = A^T A = sum_s a_s^2 M_s M_s^T,   A^T v = M^T (a * v),
+            correction_s = a_s (M lam)_s.
+        For 3 elements the 3x3 system is solved in closed form (adjugate /
+        Cramer, after scaling G to unit diagonal, in float64): a few
+        element-wise GPU operations instead of a general solver, which on a GPU
+        is slow for tiny systems and synchronizes with the CPU on every call
+        (it checks for singular matrices).  Same result up to rounding
+        (checked against the float64 general solve: ~1e-6 relative)."""
+        if self.elem_M.shape[-1] != 3:
+            return self._conserve_elements_general(z, v)
+        x = (z * self.elem_scale + self.elem_center) * self.elem_smask
+        a = torch.pow(10.0, x.clamp(max=1.0)) * self.elem_smask \
+            * (math.log(10.0) * self.elem_scale)                     # [..., S]
+        M = self.elem_M                                              # [S, 3]
+        MM = (M.unsqueeze(-1) * M.unsqueeze(-2)).reshape(M.shape[0], 9)
+        # the 3x3 part runs in float64: only 12 numbers per state, but the
+        # system can be nearly singular (e.g. at t = 0 all C and most H sit
+        # in CH4), where float32 loses the exactness of the projection
+        g = ((a * a) @ MM).double()                                  # [..., 9]
+        r = ((a * v) @ M).double()                                   # [..., 3]
+        # scale to unit diagonal (Jacobi) -> O(1) entries, then a relative
+        # regularization of the diagonal
+        dg = torch.stack([g[..., 0], g[..., 4], g[..., 8]], dim=-1).clamp(min=1e-30)
+        s_ = torch.rsqrt(dg)                                         # [..., 3]
+        s0, s1, s2 = s_[..., 0], s_[..., 1], s_[..., 2]
+        eps = 1e-12
+        g00 = 1.0 + eps
+        g11 = 1.0 + eps
+        g22 = 1.0 + eps
+        g01 = g[..., 1] * s0 * s1
+        g02 = g[..., 2] * s0 * s2
+        g12 = g[..., 5] * s1 * s2
+        r0, r1, r2 = r[..., 0] * s0, r[..., 1] * s1, r[..., 2] * s2
+        c00 = g11 * g22 - g12 * g12
+        c01 = g02 * g12 - g01 * g22
+        c02 = g01 * g12 - g02 * g11
+        c11 = g00 * g22 - g02 * g02
+        c12 = g01 * g02 - g00 * g12
+        c22 = g00 * g11 - g01 * g01
+        det = g00 * c00 + g01 * c01 + g02 * c02
+        l0 = (c00 * r0 + c01 * r1 + c02 * r2) / det * s0
+        l1 = (c01 * r0 + c11 * r1 + c12 * r2) / det * s1
+        l2 = (c02 * r0 + c12 * r1 + c22 * r2) / det * s2
+        lam = torch.stack([l0, l1, l2], dim=-1).to(v.dtype)           # [..., 3]
+        return v - a * (lam @ M.transpose(0, 1))
+
+    def _conserve_elements_general(self, z, v):
+        """Reference implementation (general float64 solve)."""
+        A = self.element_matrix_at(z)                                # [..., S, E]
+        G = torch.einsum("...se,...sf->...ef", A, A).double()
+        rhs = torch.einsum("...se,...s->...e", A, v).double()
+        reg = 1e-12 * torch.diagonal(G, dim1=-2, dim2=-1).sum(-1, keepdim=True) + 1e-300
+        eye = torch.eye(G.shape[-1], dtype=G.dtype, device=G.device)
+        lam = torch.linalg.solve(G + reg.unsqueeze(-1) * eye, rhs.unsqueeze(-1))
+        return v - torch.einsum("...se,...e->...s", A, lam.squeeze(-1).to(v.dtype))
+
+    def load_state_dict(self, state_dict, strict=True, **kw):
+        out = super().load_state_dict(state_dict, strict=strict, **kw)
+        was = self._elem_on
+        self._elem_on = bool(self.elem_on.item() > 0.5)
+        if self._elem_on != was:
+            # the checkpoint decides: a model is always evaluated with the
+            # projection setting it was trained with (the start-up line
+            # "projection ON/OFF" shows this script's own setting, not the model's)
+            print(f"note: the loaded model was trained with the element projection "
+                  f"{'ON' if self._elem_on else 'OFF'} -- it is used "
+                  f"{'WITH' if self._elem_on else 'WITHOUT'} the projection", flush=True)
+        return out
+
+
+class WindowODE(nn.Module):
+    """Wraps RateField for a batch of windows integrated on a shared tau grid.
+
+    tau = (t - t0) / D  in [0, 1] per window, so
+        dz/dtau = D * dz/dt = D * F(z, P).
+    D is a per-window CONSTANT (a change of integration variable), not a
+    network input: the field stays autonomous.
+    """
+
+    def __init__(self, field):
+        super().__init__()
+        self.field = field
+        self.p = None      # [B, 1]
+        self.D = None      # [B, 1]
+        self.nfe = 0
+
+    def set_batch(self, p, D):
+        self.p, self.D, self.nfe = p, D, 0
+
+    def forward(self, tau, z):
+        self.nfe += 1
+        return self.D * self.field.velocity(z, self.p)
+
+
+field = RateField(n_state, r_init=R_INIT).to(device).to(DTYPE)
+ode = WindowODE(field).to(device).to(DTYPE)
+n_par = sum(p.numel() for p in field.parameters())
+print(f"parameters: {n_par/1e3:.1f}k", flush=True)
+
+
+def rate_groups_spec(g):
+    """g_idx (per kept variable) -> the --rate_groups string that makes it."""
+    g = np.asarray(g.cpu() if torch.is_tensor(g) else g).astype(int)
+    n = int(g.max()) + 1
+    spec = ";".join(",".join(kept_names[k] for k in np.flatnonzero(g == j))
+                    for j in range(n - 1))
+    return spec or "none"
+
+
+def adopt_rate_groups(g_ckpt, verbose=True):
+    """Make this module use the rate groups a CHECKPOINT was trained with
+    (analysis scripts call this before loading a v7 checkpoint, so they do not
+    need the --rate_groups flag).  Rebuilds the group targets and, if the number
+    of groups differs, the field itself.  Returns True if anything changed."""
+    global g_idx, G_IDX, N_GROUPS, GROUP_NAMES, R_LO, R_HI, R_INIT, r_train
+    global SPEED, SPEED_C, H_TGT, R_TGT, V_TGT, field, ode, n_par
+    global A_SPEED, A_SPEED_C, A_H_TGT, A_R_TGT, A_V_TGT
+    g = torch.as_tensor(g_ckpt).to(device).long()
+    if g.shape == G_IDX.shape and torch.equal(g, G_IDX):
+        return False
+    g_idx = g.cpu().numpy()
+    G_IDX = g
+    N_GROUPS = int(g_idx.max()) + 1
+    GROUP_NAMES = ["+".join(kept_names[k] for k in np.flatnonzero(g_idx == j))
+                   for j in range(N_GROUPS - 1)] + ["rest"]
+    r_train = np.log(np.minimum(group_speed(v_all[train_idx]), SPEED_CAP))
+    R_LO = [float(r_train[..., j].min()) - 1.0 - RATE_MARGIN_NATS for j in range(N_GROUPS)]
+    R_HI = [float(r_train[..., j].max()) + RATE_MARGIN_NATS for j in range(N_GROUPS)]
+    R_INIT = [float(np.median(r_train[..., j])) for j in range(N_GROUPS)]
+    SPEED, SPEED_C, H_TGT, R_TGT, V_TGT = _targets(V)
+    if AZ is not None:
+        A_SPEED, A_SPEED_C, A_H_TGT, A_R_TGT, A_V_TGT = _targets(AV)
+    field = RateField(n_state, r_lo=R_LO, r_hi=R_HI, r_init=R_INIT).to(device).to(DTYPE)
+    ode = WindowODE(field).to(device).to(DTYPE)
+    n_par = sum(p_.numel() for p_ in field.parameters())
+    if verbose:
+        print(f"rate groups taken from the checkpoint: --rate_groups "
+              f"\"{rate_groups_spec(g_idx)}\" ({N_GROUPS} groups)", flush=True)
+    return True
+
+
+# ----------------------------------------------------------------------------
+# 4. BATCHED WINDOW SOLVE ON THE TRUE SAMPLE TIMES
+# ----------------------------------------------------------------------------
+
+def integrate_windows(z0, p, D, taus, rtol=RTOL_TRAIN, atol=ATOL_TRAIN,
+                      max_steps=MAX_STEPS_TRAIN, impl=None, method="dopri5",
+                      options=None, max_total_evals=None):
+    """z0 [B,S], p [B,1], D [B,1], taus [B,K] (increasing, taus[:,0]==0).
+
+    -> (pred [B,K,S], failed [B] bool).  Every window is integrated on ITS OWN
+    true sample times; nothing is resampled onto a uniform grid, and there is
+    no clamp on dz/dtau.
+    """
+    impl = impl or SOLVER_IMPL
+    if impl == "custom":
+        def f(tau, z, idx):
+            ode.nfe += 1
+            return D[idx] * field_velocity(z, p[idx])
+        ode.nfe = 0
+        return odeint_per_sample(f, z0, taus, rtol=rtol, atol=atol,
+                                 max_steps=max_steps,
+                                 max_total_evals=max_total_evals)
+    # --- torchdiffeq reference path: one shared grid (union of all taus) ----
+    B, K = taus.shape
+    grid, inverse = torch.unique(taus.reshape(-1), sorted=True, return_inverse=True)
+    ode.set_batch(p, D)
+    opts = {"max_num_steps": max_steps} if options is None else options
+    sol = odeint(ode, z0, grid, method=method, rtol=rtol, atol=atol, options=opts)
+    idx = inverse.view(B, K)
+    batch_ar = torch.arange(B, device=taus.device).unsqueeze(1).expand(B, K)
+    pred = sol[idx, batch_ar, :]
+    failed = ~torch.isfinite(pred).all(dim=(1, 2))
+    return pred, failed
+
+
+_VEL_COMPILED = {}
+
+
+def field_velocity(z, p):
+    """The model call the ODE solver makes: field.velocity, compiled with
+    torch.compile when COMPILE_FIELD is on.  dynamic=True: the per-sample
+    solver calls it with a different number of active samples at every step."""
+    global COMPILE_FIELD
+    if not COMPILE_FIELD:
+        return field.velocity(z, p)
+    key = id(field)
+    fn = _VEL_COMPILED.get(key)
+    if fn is None:
+        fn = torch.compile(field.velocity, dynamic=True)
+        _VEL_COMPILED[key] = fn
+        try:
+            out = fn(z, p)
+            print("compile_field: model call compiled", flush=True)
+            return out
+        except Exception as exc:                                   # noqa: BLE001
+            print(f"compile_field: compiling failed ({type(exc).__name__}: "
+                  f"{str(exc)[:150]}) -- continuing without it", flush=True)
+            COMPILE_FIELD = False
+            return field.velocity(z, p)
+    return fn(z, p)
+
+
+def solver_self_test(n_windows=8, length=50):
+    """Cross-check the per-sample solver against torchdiffeq on this model."""
+    g = torch.Generator(device=device); g.manual_seed(0)
+    ci, st = sample_windows(train_t, length, n_windows, g)
+    z0, p, D, taus, z_true, _, _, _ = make_window_batch(ci, st, length)
+    a, fa = integrate_windows(z0, p, D, taus, 1e-8, 1e-10, 200000, impl="custom")
+    b, fb = integrate_windows(z0, p, D, taus, 1e-8, 1e-10, 200000, impl="torchdiffeq")
+    la = ((a - z_true) ** 2).mean(); lb = ((b - z_true) ** 2).mean()
+    ga = torch.autograd.grad(la, list(field.parameters()))
+    gb = torch.autograd.grad(lb, list(field.parameters()))
+    num = sum(((x - y) ** 2).sum() for x, y in zip(ga, gb)).sqrt()
+    den = sum((y ** 2).sum() for y in gb).sqrt()
+    print(f"solver self-test: max|custom - torchdiffeq| = "
+          f"{(a - b).abs().max().item():.2e} | relative gradient difference = "
+          f"{float(num / den.clamp(min=1e-30)):.2e} | failed {int(fa.sum())}/"
+          f"{int(fb.sum())}", flush=True)
+
+
+def make_window_batch(case_ids, starts, length):
+    """Gather a batch of windows -> (z0, p, D, taus, z_true, v_true)."""
+    K = length
+    offs = torch.arange(K, device=device)
+    rows = case_ids.unsqueeze(1)
+    cols = starts.unsqueeze(1) + offs.unsqueeze(0)
+    t = TT[rows, cols]                       # [B,K]
+    z = Z[rows, cols]                        # [B,K,S]
+    v = V[rows, cols]
+    t0 = t[:, :1]
+    D = (t[:, -1:] - t0)
+    taus = ((t - t0) / D).to(DTYPE)
+    D = D.to(DTYPE)
+    p = PP[case_ids].unsqueeze(-1)
+    return z[:, 0], p, D, taus, z, v, rows, cols
+
+
+# ----------------------------------------------------------------------------
+# 5. LOSSES
+# ----------------------------------------------------------------------------
+
+LOSS_PARTS = {}      # last batch's loss components, for the epoch printout
+
+
+def _default_loss_cfg():
+    return dict(traj_loss=TRAJ_LOSS, huber_delta=TRAJ_HUBER_DELTA,
+                majors_y_weight=MAJORS_Y_WEIGHT, noise=NOISE_STD_Z0,
+                lambda_deriv=LAMBDA_DERIV_IN_STAGES)
+
+
+def majors_mass_fraction(z):
+    """normalized z [..., S] -> mass fractions of MAJOR_SPECIES [..., M]."""
+    x = z[..., MAJ_Z_IDX] * MAJ_SCALE + MAJ_CENTER
+    return torch.pow(10.0, x) - LOG_EPS
+
+
+def trajectory_loss(pred, true, ok=None, cfg=None):
+    """Weighted trajectory loss in normalized state space, skipping the
+    (exact) t0 point, plus optionally the majors mass-fraction term.
+
+    cfg["traj_loss"]: "huber" (delta = cfg["huber_delta"]) or "mse"
+    (0.5 * err^2: the same as Huber for small errors, without the linear cap).
+    `ok` masks out windows the solver could not finish -- those contribute no
+    gradient instead of taking the whole batch down (the old code replaced a
+    failed window with a constant penalty, whose gradient is zero anyway, and
+    dropped the entire batch on a solver exception).
+    """
+    cfg = cfg or _default_loss_cfg()
+    if cfg["traj_loss"] == "mse":
+        e = 0.5 * (pred[:, 1:] - true[:, 1:]) ** 2
+    else:
+        e = torch.nn.functional.huber_loss(
+            pred[:, 1:], true[:, 1:], delta=cfg["huber_delta"], reduction="none")
+    err = (e * CHW).mean(dim=(1, 2))
+    w_y = cfg.get("majors_y_weight", 0.0)
+    if w_y > 0 and len(MAJ_Z_IDX):
+        ly = ((majors_mass_fraction(pred[:, 1:])
+               - majors_mass_fraction(true[:, 1:])) ** 2).mean(dim=(1, 2))
+    else:
+        ly = torch.zeros_like(err)
+    if ok is not None:
+        if not bool(ok.any()):
+            raise RuntimeError("every window in the batch failed to integrate")
+        err, ly = err[ok], ly[ok]
+    LOSS_PARTS["state"] = float(err.mean().detach())
+    LOSS_PARTS["majors_y"] = float(ly.mean().detach())
+    return err.mean() + w_y * ly.mean()
+
+
+def derivative_loss(z, p, v_tgt, speed, r_tgt, h_tgt):
+    """Collocation loss at TRUE states.
+
+    The velocity error is measured RELATIVE to the local speed, which is the
+    only scale-free way to supervise a field spanning ~16 decades, and --
+    unlike supervising ln|v| and v/|v| separately -- it has no coordinate
+    singularity at the equilibrium fixed point (where |v| -> 0 but the state
+    stops moving, so ln|v| is not a Lipschitz function of z).
+    """
+    r, h = field(z, p)
+    # direction part: MSE against v / S, with S = sqrt(|v|^2 + VELOCITY_FLOOR^2).
+    # The floor makes h* -> 0 smoothly as the trajectory reaches equilibrium,
+    # so "at rest" is the model's default there instead of an unlearnable,
+    # singular log-rate.
+    l_dir = (((h - h_tgt) ** 2) * CHW).mean()
+    # rate part: HUBER in nats.  Near the fixed point, ln|v| ~ ln|z - z_eq| is
+    # genuinely not a Lipschitz function of z (measured: local Lipschitz up to
+    # 6e8 in the equilibrium tail), so a few nats of irreducible error live
+    # there; Huber stops those points from dominating the gradient.  They are
+    # physically harmless: an over- or under-predicted relaxation rate at a
+    # state already within ~1e-5 of equilibrium only changes how fast the
+    # model settles onto the same fixed point.
+    # v7: one Huber term per rate group, averaged over the groups
+    l_rate = torch.nn.functional.huber_loss(r, r_tgt, delta=HUBER_DELTA_RATE)
+    v = torch.exp(r)[..., G_IDX] * h
+    rel = ((v - v_tgt).norm(dim=-1) / speed).detach()
+    return (W_DIR * l_dir + W_RATE * l_rate, l_dir.detach(), l_rate.detach(), rel)
+
+
+# ----------------------------------------------------------------------------
+# 6. PRETRAINING (pure derivative matching -- gives the shooting stages a
+#    field that is already the right order of magnitude everywhere)
+# ----------------------------------------------------------------------------
+
+PRETRAIN_CKPT = OUT_DIR / "pretrain_best.pt"
+
+
+def pretrain():
+    if PRETRAIN_CKPT.exists():
+        ck = torch.load(PRETRAIN_CKPT, map_location=device, weights_only=False)
+        g_ck = ck["model"].get("g_idx")
+        if g_ck is not None and not (g_ck.shape == G_IDX.shape
+                                     and torch.equal(g_ck.to(device), G_IDX)):
+            sys.exit(f"error: {PRETRAIN_CKPT} was trained with --rate_groups "
+                     f"\"{rate_groups_spec(g_ck)}\", this run uses "
+                     f"\"{rate_groups_spec(G_IDX)}\".  Pass the same --rate_groups "
+                     f"as for pretraining (or use a new --out_dir).")
+        sd_ck = dict(ck["model"])
+        own = field.state_dict()
+        added = [k for k in own if k.startswith("elem_") and k not in sd_ck]
+        for k in added:                 # a v7 pretraining: same network, same loss
+            sd_ck[k] = own[k]
+        field.load_state_dict(sd_ck)
+        print(f"loaded pretrained field (val {ck['val']:.4e})"
+              + (" -- weights from a v7 run (pretraining is identical in v7 and v8); "
+                 "element buffers built from this run's data" if added else ""),
+              flush=True)
+        return
+    opt = torch.optim.AdamW(field.parameters(), lr=PRETRAIN_LR, weight_decay=1e-6)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=PRETRAIN_STEPS, eta_min=PRETRAIN_LR_MIN)
+
+    def gather(idx_tensor, n):
+        n_aug = int(n * AUG_FRACTION) if AZ is not None else 0
+        n_dat = n - n_aug
+        ci = idx_tensor[torch.randint(len(idx_tensor), (n_dat,), device=device)]
+        ti = torch.randint(n_points, (n_dat,), device=device)
+        out = [Z[ci, ti], PP[ci].unsqueeze(-1), V_TGT[ci, ti], SPEED_C[ci, ti],
+               R_TGT[ci, ti], H_TGT[ci, ti]]
+        if n_aug:
+            cj = idx_tensor[torch.randint(len(idx_tensor), (n_aug,), device=device)]
+            tj = torch.randint(n_aug_points, (n_aug,), device=device)
+            aug = [AZ[cj, tj], PP[cj].unsqueeze(-1), A_V_TGT[cj, tj],
+                   A_SPEED_C[cj, tj], A_R_TGT[cj, tj], A_H_TGT[cj, tj]]
+            out = [torch.cat([a, b], dim=0) for a, b in zip(out, aug)]
+        return tuple(out)
+
+    best, best_state = float("inf"), copy.deepcopy(field.state_dict())
+    t0 = time.time()
+    for step in range(1, PRETRAIN_STEPS + 1):
+        field.train()
+        loss, ldir, lrate, _ = derivative_loss(*gather(train_t, PRETRAIN_BATCH))
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        nn.utils.clip_grad_norm_(field.parameters(), GRAD_CLIP)
+        opt.step()
+        sched.step()
+        if step % PRETRAIN_EVAL_EVERY == 0 or step == PRETRAIN_STEPS:
+            field.eval()
+            with torch.no_grad():
+                vloss, vdir, vrate, rel = derivative_loss(*gather(val_t, 8192))
+                n_d = 8192 - (int(8192 * AUG_FRACTION) if AZ is not None else 0)
+                rel_data, rel_aug = rel[:n_d], rel[n_d:]
+            if vloss.item() < best:
+                best = vloss.item()
+                best_state = copy.deepcopy(field.state_dict())
+            print(f"  pretrain {step:7d}/{PRETRAIN_STEPS} | train {loss.item():.4e} "
+                  f"| val {vloss.item():.4e} (dir {vdir:.3e}, rate {vrate:.3e}) "
+                  f"| rel. velocity error on data: median "
+                  f"{100*rel_data.median():.1f}% p90 "
+                  f"{100*torch.quantile(rel_data, 0.9):.1f}%"
+                  + (f" | augmented: median {100*rel_aug.median():.1f}%"
+                     if rel_aug.numel() else "") + " "
+                  f"| lr {sched.get_last_lr()[0]:.2e} | {time.time()-t0:.0f}s", flush=True)
+    field.load_state_dict(best_state)
+    torch.save({"model": best_state, "val": best}, PRETRAIN_CKPT)
+    print(f"pretraining done (best val {best:.4e})", flush=True)
+
+
+@torch.no_grad()
+def pretrain_report(split):
+    """Relative velocity error |F(z,P) - v_true| / |v_true| of the current
+    field at EVERY sample point of every case in `split` (deterministic, unlike
+    the random 8192-point check during pretraining), split at the ignition
+    point (first crossing of half the temperature rise).  The t = 0 point is
+    left out (its target rate is capped, see SPEED_CAP).  This measures how
+    well the network can represent the true field -- the quantity to compare
+    between network sizes."""
+    field.eval()
+    idx = {"train": train_idx, "val": val_idx, "test": test_idx}[split]
+    rel_all, post_all, relp_all = [], [], []
+    for c in idx:
+        c = int(c)
+        T = states_phys[c, :, 0]
+        i_ign = int(np.flatnonzero(T >= T[0] + 0.5 * (T.max() - T[0]))[0])
+        p = PP[c].reshape(1, 1).expand(n_points, 1)
+        _, _, _, rel = derivative_loss(Z[c], p, V_TGT[c], SPEED_C[c], R_TGT[c], H_TGT[c])
+        rel_all.append(rel.cpu().numpy()[1:])
+        post_all.append((np.arange(n_points) >= i_ign)[1:])
+        # v8: the velocity the solver actually integrates (box gate + projection)
+        vp = field.velocity(Z[c], p)
+        relp_all.append(((vp - V_TGT[c]).norm(dim=-1) / SPEED_C[c]).cpu().numpy()[1:])
+    rel, post = np.concatenate(rel_all), np.concatenate(post_all)
+    relp = np.concatenate(relp_all)
+    print(f"  {split:5s} integrated velocity (gate{' + element projection' if field._elem_on else ''}):"
+          f" median {100*np.median(relp):6.2f}% | p90 {100*np.percentile(relp, 90):7.2f}%"
+          f" (raw network: median {100*np.median(rel):6.2f}% | p90 "
+          f"{100*np.percentile(rel, 90):7.2f}%)", flush=True)
+
+    def q(a):
+        return {"median": float(np.median(a)), "p90": float(np.percentile(a, 90)),
+                "p99": float(np.percentile(a, 99))}
+    out = {"all": q(rel), "before_ignition": q(rel[~post]),
+           "after_ignition": q(rel[post]), "n_points": int(len(rel))}
+    for k in ("all", "before_ignition", "after_ignition"):
+        m = out[k]
+        print(f"  {split:5s} {k:16s}: median {100*m['median']:6.2f}% | p90 "
+              f"{100*m['p90']:7.2f}% | p99 {100*m['p99']:8.2f}%", flush=True)
+    return out
+
+
+# ----------------------------------------------------------------------------
+# 7. ROLLOUTS AND METRICS (evaluated at the TRUE sample times)
+# ----------------------------------------------------------------------------
+
+def _solve_case(case_id, t_idx_from, t_idx_to, z0, rtol, atol, max_steps,
+                impl=None):
+    t = TT[case_id, t_idx_from:t_idx_to]
+    D = (t[-1] - t[0]).reshape(1, 1).to(DTYPE)
+    taus = ((t - t[0]) / (t[-1] - t[0])).reshape(1, -1).to(DTYPE)
+    p = PP[case_id].reshape(1, 1)
+    z, failed = integrate_windows(z0.reshape(1, -1), p, D, taus, rtol=rtol,
+                                  atol=atol, max_steps=max_steps, impl=impl)
+    if bool(failed[0]):
+        raise RuntimeError("integration did not finish")
+    return z[0]
+
+
+@torch.no_grad()
+def continuous_rollout(case_id, allow_fallback=True, max_steps=None):
+    """ONE integration over the whole trajectory, from the true state at t=0,
+    evaluated at the case's own true sample times."""
+    field.eval()
+    try:
+        z = _solve_case(case_id, 0, n_points, Z[case_id, 0],
+                        RTOL_EVAL, ATOL_EVAL, max_steps or MAX_STEPS_EVAL)
+        if torch.isfinite(z).all():
+            return z.cpu().numpy(), SOLVER_IMPL
+        raise RuntimeError("non-finite")
+    except Exception as exc:
+        if not allow_fallback:
+            return None, "failed"
+        # stiff fallback: implicit LSODA, forward only (no gradients needed)
+        try:
+            ode.set_batch(PP[case_id].reshape(1, 1),
+                          (TT[case_id, -1] - TT[case_id, 0]).reshape(1, 1).to(DTYPE))
+            t = TT[case_id]
+            taus = ((t - t[0]) / (t[-1] - t[0])).to(DTYPE)
+            z = odeint(ode, Z[case_id, 0].reshape(1, -1), taus,
+                       method="scipy_solver", rtol=RTOL_EVAL, atol=ATOL_EVAL,
+                       options={"solver": "LSODA"})[:, 0]
+            return z.cpu().numpy(), "LSODA"
+        except Exception as exc2:
+            print(f"    rollout failed for case {int(case_id)}: {exc} / {exc2}",
+                  flush=True)
+            return None, "failed"
+
+
+@torch.no_grad()
+def reset_rollout(case_id, window_len, overlap):
+    """Window-by-window, each window restarted from the TRUE state at its own
+    start index, evaluated at the true sample times."""
+    field.eval()
+    bounds, s = [], 0
+    while s < n_points - 1:
+        e = min(s + window_len, n_points)
+        if e == n_points and (e - s) < 2 and bounds:
+            bounds[-1] = (bounds[-1][0], e)
+            break
+        bounds.append((s, e))
+        if e == n_points:
+            break
+        s = e - overlap
+    out = np.empty((n_points, n_state))
+    out[:] = np.nan
+    for (a, b) in bounds:
+        try:
+            z = _solve_case(case_id, a, b, Z[case_id, a],
+                            RTOL_EVAL, ATOL_EVAL, MAX_STEPS_EVAL).cpu().numpy()
+        except Exception as exc:
+            print(f"    reset window [{a},{b}) failed: {type(exc).__name__}", flush=True)
+            continue
+        out[a:b] = z
+    return out
+
+
+def case_metrics(case_id, z_pred):
+    """Physical-unit metrics on one case."""
+    if z_pred is None or not np.isfinite(z_pred).all():
+        return None
+    t = times_phys[case_id]
+    true = states_phys[case_id]
+    pred = z_to_physical(z_pred, case_id)
+    T_err = pred[:, 0] - true[:, 0]
+
+    def t_ign(Tc):
+        """Ignition time = first crossing of half the total temperature rise.
+
+        Deliberately NOT argmax(dT/dt): on a reset rollout the largest dT/dt
+        can sit on the jump at a window boundary rather than on the ignition
+        front, which made that metric meaningless (it swung between 0.3% and
+        87% between epochs while the trajectories barely changed).
+        """
+        half = Tc[0] + 0.5 * (Tc.max() - Tc[0])
+        idx = np.flatnonzero(Tc >= half)
+        return t[idx[0]] if len(idx) else t[-1]
+    ti_t, ti_p = t_ign(true[:, 0]), t_ign(pred[:, 0])
+    m = {
+        "T_rmse": float(np.sqrt(np.mean(T_err ** 2))),
+        "T_max": float(np.abs(T_err).max()),
+        "t_ign_rel": float(abs(ti_p - ti_t) / max(ti_t, 1e-30)),
+    }
+    # species: factor error where the species is above the metric floor
+    Yt, Yp = true[:, 1:], pred[:, 1:]
+    mask = Yt > SPECIES_METRIC_FLOOR
+    if mask.any():
+        dl = np.abs(np.log10((Yp + LOG_EPS) / (Yt + LOG_EPS)))[mask]
+        m["Y_factor_median"] = float(10 ** np.median(dl))
+        m["Y_factor_p90"] = float(10 ** np.percentile(dl, 90))
+    else:
+        m["Y_factor_median"] = m["Y_factor_p90"] = float("nan")
+    majors = [s for s in ["CH4", "O2", "CO", "H2", "CO2", "H2O"] if s in species_names]
+    ix = [species_names.index(s) for s in majors]
+    m["Y_major_rmse"] = float(np.sqrt(np.mean((Yp[:, ix] - Yt[:, ix]) ** 2)))
+    # v8: largest relative element drift along the rollout (C, H, O), %
+    b = Yp @ M_full
+    b0 = Yt[0] @ M_full
+    m["elem_drift_pct"] = float(100 * np.max(np.abs(b - b0) / np.maximum(b0, 1e-30)))
+    return m
+
+
+def summarize(ms, label):
+    n_all = len(ms)
+    ms = [m for m in ms if m is not None]
+    if not ms:
+        print(f"  {label}: all {n_all} rollouts FAILED (step cap or non-finite)",
+              flush=True)
+        return {}
+    agg = {k: float(np.mean([m[k] for m in ms])) for k in ms[0]}
+    print(f"  {label}: T_rmse {agg['T_rmse']:7.2f} K | T_max {agg['T_max']:7.1f} K "
+          f"| t_ign err {100*agg['t_ign_rel']:5.1f}% | Y factor (median) "
+          f"{agg['Y_factor_median']:.2f}x | majors RMSE {agg['Y_major_rmse']:.2e}"
+          + (f" | element drift (max along rollout) {agg['elem_drift_pct']:.2g}%" if "elem_drift_pct" in agg
+             else "")
+          + f" | {len(ms)} case(s)"
+          + (f" | {n_all - len(ms)} FAILED (step cap)" if n_all > len(ms) else ""),
+          flush=True)
+    return agg
+
+
+# ----------------------------------------------------------------------------
+# 8. MULTIPLE-SHOOTING STAGES
+# ----------------------------------------------------------------------------
+
+def sample_windows(case_pool, length, n, generator, from_start=0.0):
+    """`from_start` is the FRACTION of windows anchored at t=0.
+
+    Prefix windows (anchored at t=0) are what actually train the continuous
+    rollout: a long rollout accumulates its timing error in the induction
+    phase, which is only ever entered from the true initial state.  But a
+    stage made of prefix windows ALONE forgets the rest of the trajectory --
+    measured: 6 epochs of pure prefix-60 training took the reset-rollout
+    ignition error from 0.7% to 37.9%.  Mixing is what works.
+    """
+    ci = case_pool[torch.randint(len(case_pool), (n,), device=device,
+                                 generator=generator)]
+    st = torch.randint(n_points - length + 1, (n,), device=device,
+                       generator=generator)
+    if from_start > 0:
+        anchor = torch.rand(n, device=device, generator=generator) < from_start
+        st = torch.where(anchor, torch.zeros_like(st), st)
+    return ci, st
+
+
+def run_batch(ci, st, length, noise=0.0, cfg=None):
+    """One batch of windows -> (total loss, trajectory loss, collocation loss,
+    number of failed windows).  `cfg`: the stage's loss settings."""
+    cfg = cfg or _default_loss_cfg()
+    lam = cfg.get("lambda_deriv", LAMBDA_DERIV_IN_STAGES)
+    z0, p, D, taus, z_true, v_true, rows, cols = make_window_batch(ci, st, length)
+    if noise > 0:
+        dz = noise * torch.randn_like(z0)
+        if not NOISE_AT_T0:
+            dz = dz * (st > 0).unsqueeze(-1).to(dz.dtype)
+        z0 = z0 + dz
+    pred, failed = integrate_windows(z0, p, D, taus,
+                                     max_total_evals=EVAL_BUDGET_TRAIN)
+    ok = (~failed) & torch.isfinite(pred).all(dim=(1, 2))
+    l_traj = trajectory_loss(pred, z_true, ok, cfg)
+    if lam > 0:
+        args = [z_true.reshape(-1, n_state),
+                p.unsqueeze(1).expand(-1, length, -1).reshape(-1, 1),
+                V_TGT[rows, cols].reshape(-1, n_state),
+                SPEED_C[rows, cols].reshape(-1),
+                R_TGT[rows, cols].reshape(-1, N_GROUPS),
+                H_TGT[rows, cols].reshape(-1, n_state)]
+        if AZ is not None and AUG_FRACTION > 0:
+            m = args[0].shape[0]
+            n_aug = max(1, int(m * AUG_FRACTION))
+            cj = ci[torch.randint(len(ci), (n_aug,), device=device)]
+            tj = torch.randint(n_aug_points, (n_aug,), device=device)
+            aug = [AZ[cj, tj], PP[cj].unsqueeze(-1), A_V_TGT[cj, tj],
+                   A_SPEED_C[cj, tj], A_R_TGT[cj, tj], A_H_TGT[cj, tj]]
+            args = [torch.cat([a, b], dim=0) for a, b in zip(args, aug)]
+        l_der, _, _, _ = derivative_loss(*args)
+    else:
+        l_der = torch.zeros((), dtype=DTYPE, device=device)
+    return (l_traj + lam * l_der, l_traj.detach(),
+            l_der.detach(), int((~ok).sum()))
+
+
+class StageCosineLR:
+    """Cosine decay lr_max -> lr_min over a stage, in closed form.
+
+    Written out instead of torch's CosineAnnealingLR for two reasons:
+    (1) torch's schedule is PERIODIC past its end, so resuming a stage after
+        changing its epoch count sends the learning rate back UP;
+    (2) the rollback needs to halve the rate permanently, which a recursive
+        scheduler does not do cleanly.
+    Reads old checkpoints written with CosineAnnealingLR (uses `last_epoch`).
+    """
+
+    def __init__(self, opt, lr_max, lr_min, total_steps):
+        self.opt, self.lr_max, self.lr_min = opt, lr_max, lr_min
+        self.total = max(1, int(total_steps))
+        self.step_i, self.scale = 0, 1.0
+        # v7: optional linear warm-up (STAGE_WARMUP_FRACTION), restarted after
+        # a rollback because that resets the Adam moments as well
+        self.warm = int(round(STAGE_WARMUP_FRACTION * self.total))
+        self.warm_start = 0
+        self._apply()
+
+    def _lr(self):
+        f = min(self.step_i / self.total, 1.0)
+        lr = self.scale * (self.lr_min + 0.5 * (self.lr_max - self.lr_min)
+                           * (1.0 + math.cos(math.pi * f)))
+        if self.warm > 0:
+            lr *= min(1.0, (self.step_i - self.warm_start + 1) / self.warm)
+        return lr
+
+    def _apply(self):
+        for g in self.opt.param_groups:
+            g["lr"] = self._lr()
+
+    def step(self):
+        self.step_i += 1
+        self._apply()
+
+    def halve(self):
+        self.scale *= 0.5
+        self.warm_start = self.step_i
+        self._apply()
+
+    def get_last_lr(self):
+        return [self._lr()]
+
+    def state_dict(self):
+        return {"step_i": self.step_i, "scale": self.scale,
+                "warm_start": self.warm_start}
+
+    def load_state_dict(self, d):
+        self.step_i = int(d.get("step_i", d.get("last_epoch", 0)))
+        self.scale = float(d.get("scale", 1.0))
+        # a resumed stage does not warm up again
+        self.warm_start = int(d.get("warm_start", -10 ** 9))
+        self._apply()
+
+
+def train_stage(stage):
+    """Train one curriculum stage.  `stage`: one entry of STAGES (a dict)."""
+    name, length, epochs = stage["name"], stage["window"], stage["epochs"]
+    per_epoch, batch = stage["per_epoch"], stage["batch"]
+    lr_max, lr_min, from_start = stage["lr_max"], stage["lr_min"], stage["from_start"]
+    cfg = {k: stage[k] for k in ("traj_loss", "huber_delta", "majors_y_weight",
+                                 "noise", "lambda_deriv")}
+    use_y = cfg["majors_y_weight"] > 0
+    full = length is None
+    if full:
+        from_start = 1.0
+    L = n_points if full else length
+    if full:
+        per_epoch = len(train_idx)
+    stage_dir = OUT_DIR / name
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    latest = stage_dir / "latest.pt"
+
+    # Effective batch / learning rates.  A stage that has already started
+    # keeps exactly the settings it started with (they are stored in its
+    # checkpoint), so changing NODE_BATCH_SCALE never alters a stage midway.
+    ck = None
+    if latest.exists():
+        ck = torch.load(latest, map_location=device, weights_only=False)
+    if ck is not None and "stage_cfg" in ck:
+        batch, lr_max, lr_min = ck["stage_cfg"][:3]
+    elif ck is None and BATCH_SCALE != 1.0:
+        f = math.sqrt(BATCH_SCALE)
+        batch = max(1, int(round(batch * BATCH_SCALE)))
+        lr_max, lr_min = min(lr_max * f, LR_CAP), min(lr_min * f, LR_CAP)
+        print(f"  (batch scale x{BATCH_SCALE:g}: batch {batch}, lr scaled by "
+              f"sqrt = x{f:.2f})", flush=True)
+    if ck is not None and "stage_cfg" in ck and len(ck["stage_cfg"]) > 3:
+        per_epoch = ck["stage_cfg"][3]
+    elif ck is None and WINDOWS_SCALE != 1.0 and not full:
+        per_epoch = int(round(per_epoch * WINDOWS_SCALE))
+        print(f"  (windows per epoch x{WINDOWS_SCALE:g}: {per_epoch})", flush=True)
+    stage_cfg = (batch, lr_max, lr_min, per_epoch)
+    n_batches = max(1, per_epoch // batch)
+
+    opt = torch.optim.AdamW(field.parameters(), lr=lr_max, weight_decay=1e-6)
+    sched = StageCosineLR(opt, lr_max, lr_min, epochs * n_batches)
+    start_epoch, best_state = 1, copy.deepcopy(field.state_dict())
+    history = []
+    # Measure the INCOMING model on this stage's validation windows and use it
+    # as the bar to beat.  A stage that cannot improve on the model it was
+    # given therefore leaves it untouched, instead of replacing it with its own
+    # (worse) best -- measured need for this: a naive full-trajectory stage
+    # made reset-rollout ignition error go from 0.7% to 62%.
+    best = float("inf")
+
+    if ck is not None:
+        field.load_state_dict(ck["model"])
+        opt.load_state_dict(ck["opt"])
+        sched.load_state_dict(ck["sched"])
+        start_epoch, best, best_state = ck["epoch"] + 1, ck["best"], ck["best_state"]
+        history = ck["history"]
+        if start_epoch > epochs:
+            print(f"=== stage {name}: already complete (best {best:.4e}) ===", flush=True)
+            field.load_state_dict(best_state)
+            return
+        print(f"=== stage {name}: resuming at epoch {start_epoch} ===", flush=True)
+
+    print(f"\n=== stage {name} | window {'FULL ('+str(L)+' pts)' if full else L}"
+          f"{f' ({from_start:.0%} anchored at t=0)' if from_start and not full else ''} "
+          f"| {epochs} epochs x {n_batches} batches of {batch} "
+          f"| lr {lr_max:.1e} -> {lr_min:.1e} ===", flush=True)
+    loss_txt = ("mse" if cfg["traj_loss"] == "mse"
+                else f"huber(delta {cfg['huber_delta']:g})")
+    y_txt = (f" + {cfg['majors_y_weight']:g} x majors mass-fraction MSE"
+             if use_y else "")
+    print(f"  loss: trajectory {loss_txt}{y_txt} + {cfg['lambda_deriv']:g} x "
+          f"collocation | start-state noise {cfg['noise']:g}", flush=True)
+
+    gval = torch.Generator(device=device); gval.manual_seed(1234)
+    if full:
+        val_ci = val_t
+        val_st = torch.zeros(len(val_t), dtype=torch.long, device=device)
+    else:
+        val_ci, val_st = sample_windows(val_t, L, N_VAL_WINDOWS, gval,
+                                        from_start=from_start)  # same mix
+
+    gtr = torch.Generator(device=device); gtr.manual_seed(SEED + 7)
+
+    if start_epoch == 1:
+        field.eval()
+        with torch.no_grad():
+            v0, n0 = 0.0, 0
+            for b in range(0, len(val_ci), batch):
+                try:
+                    _, l_traj, _, _ = run_batch(val_ci[b:b + batch],
+                                                val_st[b:b + batch], L, cfg=cfg)
+                    v0 += l_traj.item(); n0 += 1
+                except Exception:
+                    continue
+            if n0:
+                best = v0 / n0
+                print(f"  incoming model scores {best:.4e} on this stage's "
+                      f"validation windows (bar to beat)", flush=True)
+
+    for epoch in range(start_epoch, epochs + 1):
+        field.train()
+        if full:
+            order = train_t[torch.randperm(len(train_t), device=device, generator=gtr)]
+        tot, tot_traj, tot_der, nb, nfail, nwin_failed = 0.0, 0.0, 0.0, 0, 0, 0
+        tot_y = 0.0
+        stats = {}
+        t0 = time.time()
+        for b in range(n_batches):
+            if full:
+                sl = order[b * batch:(b + 1) * batch]
+                if len(sl) == 0:
+                    continue
+                ci, st = sl, torch.zeros(len(sl), dtype=torch.long, device=device)
+            else:
+                ci, st = sample_windows(train_t, L, batch, gtr,
+                                        from_start=from_start)
+            try:
+                loss, l_traj, l_der, n_bad = run_batch(
+                    ci, st, L, noise=cfg["noise"], cfg=cfg)
+                nwin_failed += n_bad
+                opt.zero_grad(set_to_none=True)
+                loss.backward()
+                gn = nn.utils.clip_grad_norm_(field.parameters(), GRAD_CLIP)
+                if torch.isfinite(gn):
+                    opt.step()
+            except Exception as exc:
+                nfail += 1
+                opt.zero_grad(set_to_none=True)
+                if nfail <= 2:
+                    print(f"    batch failed ({type(exc).__name__}: {str(exc)[:90]})",
+                          flush=True)
+                continue
+            finally:
+                sched.step()
+            tot += loss.item(); tot_traj += l_traj.item(); tot_der += l_der.item(); nb += 1
+            tot_y += LOSS_PARTS.get("majors_y", 0.0)
+            stats = last_call_stats()
+        if nb == 0:
+            print("  every batch failed this epoch -- stopping stage", flush=True)
+            break
+        tr = tot / nb
+
+        lr_used = sched.get_last_lr()[0]        # before a possible rollback halves it
+        if epoch % VALIDATE_EVERY == 0 or epoch == epochs or epoch == 1:
+            field.eval()
+            vt, nv = 0.0, 0
+            with torch.no_grad():
+                for b in range(0, len(val_ci), batch):
+                    try:
+                        _, l_traj, _, _ = run_batch(val_ci[b:b + batch],
+                                                    val_st[b:b + batch], L,
+                                                    cfg=cfg)
+                        vt += l_traj.item(); nv += 1
+                    except Exception:
+                        continue
+            vl = vt / max(nv, 1) if nv else float("inf")
+            rolled_back = False
+            if (ROLLBACK_FACTOR is not None and np.isfinite(best)
+                    and vl > ROLLBACK_FACTOR * best):
+                field.load_state_dict(best_state)
+                opt.state.clear()                       # fresh Adam moments
+                sched.halve()
+                rolled_back = True
+            improved = vl < best
+            if improved:
+                best = vl
+                best_state = copy.deepcopy(field.state_dict())
+                torch.save({"model": best_state, "val": best, "stage": name,
+                            "center": center, "scale": scale, "keep": keep,
+                            "kept_names": kept_names, "p_center": p_center,
+                            "p_scale": p_scale, "log_eps": LOG_EPS},
+                           stage_dir / "best.pt")
+            history.append({"epoch": epoch, "train": tr, "val": vl, "lr": lr_used})
+            print(f"  epoch {epoch:4d}/{epochs} | train {tr:.4e} "
+                  f"(traj {tot_traj/nb:.3e}"
+                  f"{f', majors-Y MSE {tot_y/nb:.2e}' if use_y else ''}"
+                  f", deriv {tot_der/nb:.3e}) | val {vl:.4e}"
+                  f"{' *' if improved else '  '} | lr {lr_used:.2e} "
+                  f"| solver: {stats.get('evals', 0)} evals, max "
+                  f"{stats.get('max_steps_used', 0)} steps/window "
+                  f"| failed batches {nfail}/{n_batches}, "
+                  f"windows {nwin_failed} "
+                  f"| {time.time()-t0:.0f}s", flush=True)
+            if rolled_back:
+                print(f"    ROLLBACK: val {vl:.3e} > {ROLLBACK_FACTOR:g} x best "
+                      f"{best:.3e} -> reloaded the best weights, lr halved "
+                      f"{lr_used:.2e} -> {sched.get_last_lr()[0]:.2e}", flush=True)
+
+        if epoch % ROLLOUT_EVERY == 0 or epoch == epochs:
+            ms = [case_metrics(c, continuous_rollout(
+                      int(c), allow_fallback=False, max_steps=MAX_STEPS_MONITOR)[0])
+                  for c in val_idx[:N_ROLLOUT_CASES]]
+            summarize(ms, f"  [epoch {epoch}] val continuous rollout")
+
+        torch.save({"model": field.state_dict(), "opt": opt.state_dict(),
+                    "sched": sched.state_dict(), "stage_cfg": stage_cfg,
+                    "epoch": epoch, "best": best,
+                    "best_state": best_state, "history": history}, latest)
+
+    field.load_state_dict(best_state)
+    print(f"  stage {name} done | best val {best:.4e}", flush=True)
+
+
+# ----------------------------------------------------------------------------
+# 9. FINAL EVALUATION AND PLOTS
+# ----------------------------------------------------------------------------
+
+def plot_case(case_id, z_cont, z_reset, window_len, tag):
+    t = times_phys[case_id]
+    true = states_phys[case_id]
+    items = [("T", 0)] + [(s, 1 + species_names.index(s))
+                          for s in PLOT_SPECIES if s in species_names]
+    ncol = 3
+    nrow = int(np.ceil(len(items) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(5.2 * ncol, 3.4 * nrow))
+    axes = np.atleast_1d(axes).ravel()
+    pc = z_to_physical(z_cont, case_id) if z_cont is not None else None
+    pr = z_to_physical(z_reset, case_id) if z_reset is not None else None
+    for ax, (name, col) in zip(axes, items):
+        ax.plot(t, true[:, col], "k-", lw=1.6, label="True (Cantera)")
+        if pr is not None:
+            ax.plot(t, pr[:, col], "r--", lw=1.1,
+                    label=f"reset (w={window_len})")
+        if pc is not None:
+            ax.plot(t, pc[:, col], "b-.", lw=1.1, label="continuous (t=0)")
+        ax.set_xscale("symlog", linthresh=max(t[t > 0].min(), 1e-12))
+        if col > 0:
+            ax.set_yscale("log")
+            ax.set_ylabel("mass fraction")
+        else:
+            ax.set_ylabel("K")
+        ax.set_title(name)
+        ax.set_xlabel("time (s)")
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    for ax in axes[len(items):]:
+        ax.axis("off")
+    fig.suptitle(f"case {case_id} -- {tag}")
+    fig.tight_layout()
+    out = OUT_DIR / f"eval_case{case_id}_{tag}.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+@torch.no_grad()
+def predict_trajectory(T0_K, Y0, P_bar, times_s):
+    """Stand-alone use of the trained model, in PHYSICAL units.
+
+    T0_K : float               initial temperature [K]
+    Y0   : array (n_species,)  initial mass fractions, in `species_names` order
+    P_bar: float               pressure [bar(a)]
+    times_s: increasing array, times_s[0] is the initial time
+    -> (len(times), 1 + n_species) array of [T, Y...] in physical units.
+    """
+    field.eval()
+    x0 = np.concatenate([[float(T0_K)],
+                         np.log10(np.clip(np.asarray(Y0, float), 0, None) + LOG_EPS)])
+    z0 = torch.tensor((x0[keep] - center) / scale, dtype=DTYPE, device=device)
+    t = torch.tensor(np.asarray(times_s, float), dtype=torch.float64, device=device)
+    D = (t[-1] - t[0]).reshape(1, 1).to(DTYPE)
+    taus = ((t - t[0]) / (t[-1] - t[0])).reshape(1, -1).to(DTYPE)
+    p = torch.tensor([[(float(P_bar) - p_center) / p_scale]], dtype=DTYPE, device=device)
+    z, failed = integrate_windows(z0.reshape(1, -1), p, D, taus,
+                                  rtol=RTOL_EVAL, atol=ATOL_EVAL,
+                                  max_steps=MAX_STEPS_EVAL)
+    if bool(failed[0]):
+        raise RuntimeError("integration did not finish -- check the state/P "
+                           "are inside the training range")
+    return z_to_physical(z[0].cpu().numpy(),
+                         const=np.concatenate([[float(T0_K)], np.asarray(Y0, float)]))
+
+
+def plot_history(stage_name):
+    ck = OUT_DIR / stage_name / "latest.pt"
+    if not ck.exists():
+        return
+    h = torch.load(ck, map_location="cpu", weights_only=False)["history"]
+    if not h:
+        return
+    ep = [d["epoch"] for d in h]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.semilogy(ep, [d["train"] for d in h], label="train")
+    ax.semilogy(ep, [d["val"] for d in h], label="val (trajectory only)")
+    ax.set_xlabel("epoch"); ax.set_ylabel("loss"); ax.set_title(f"stage {stage_name}")
+    ax.grid(alpha=0.3); ax.legend()
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / f"history_{stage_name}.png", dpi=140)
+    plt.close(fig)
+
+
+def final_evaluation(tag="final"):
+    """Test-set evaluation.  The CONTINUOUS rollout (one solve from the initial
+    state, as in deployment) is the result; the reset rollout restarts from
+    true states and is only computed with --eval_reset, as a diagnostic."""
+    print(f"\n=== final evaluation on TEST cases (true sample times) ===", flush=True)
+    res_c, res_r, kept = [], [], {}
+    for c in test_idx:
+        zc, how = continuous_rollout(int(c))
+        res_c.append(case_metrics(c, zc))
+        zr = None
+        if EVAL_RESET:
+            zr = reset_rollout(int(c), EVAL_RESET_WINDOW, EVAL_RESET_OVERLAP)
+            res_r.append(case_metrics(c, zr))
+        if len(kept) < PLOT_CASES:
+            kept[int(c)] = (zc, zr)
+    a_c = summarize(res_c, "continuous rollout (single solve from t=0)")
+    a_r = (summarize(res_r, f"reset rollout (w={EVAL_RESET_WINDOW}, "
+                            f"o={EVAL_RESET_OVERLAP}) [diagnostic only]")
+           if EVAL_RESET else None)
+    for c, (zc, zr) in kept.items():
+        print(f"  plot: {plot_case(c, zc, zr, EVAL_RESET_WINDOW, tag)}", flush=True)
+    out = {"continuous": a_c, "n_test": len(test_idx),
+           "stages": [s_["name"] for s_ in STAGES]}
+    if EVAL_RESET:
+        out["reset"] = a_r
+    path = OUT_DIR / f"{tag}_metrics.json"
+    with open(path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"  metrics: {path}", flush=True)
+    return a_c, a_r
+
+
+# ----------------------------------------------------------------------------
+# 10. RUN
+# ----------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    t_start = time.time()
+    pretrain()
+    if STOP_AFTER_PRETRAIN:
+        print(f"\n=== derivative accuracy of the pretrained field "
+              f"({N_HIDDEN_LAYERS} x {HIDDEN_DIM}, {n_par/1e3:.1f}k parameters) ===",
+              flush=True)
+        rep_ = {"hidden_dim": HIDDEN_DIM, "n_hidden_layers": N_HIDDEN_LAYERS,
+                "parameters": n_par, "pretrain_steps": PRETRAIN_STEPS,
+                "train": pretrain_report("train"), "val": pretrain_report("val")}
+        path = OUT_DIR / "pretrain_report.json"
+        with open(path, "w") as f:
+            json.dump(rep_, f, indent=2)
+        print(f"  report: {path}\n(--stop_after pretrain: stopping here)", flush=True)
+        sys.exit(0)
+    print("\npost-pretraining sanity rollout (no shooting yet):", flush=True)
+    summarize([case_metrics(c, continuous_rollout(
+                   int(c), allow_fallback=False, max_steps=MAX_STEPS_MONITOR)[0])
+               for c in val_idx[:N_ROLLOUT_CASES]], "  continuous")
+    for stage in STAGES:
+        train_stage(stage)
+        plot_history(stage["name"])
+    last = STAGES[-1]["name"] if STAGES else "pretrain"
+    # plots / metrics are named after the last stage, so the results of an
+    # earlier run (e.g. after "full") are not overwritten by a later one
+    final_evaluation(tag=f"final_{last}")
+    final_path = OUT_DIR / "final_model.pt"
+    backup = OUT_DIR / f"final_model_before_{last}.pt"
+    if final_path.exists() and not backup.exists():
+        prev = torch.load(final_path, map_location="cpu", weights_only=False)
+        if prev.get("last_stage") != last:
+            final_path.replace(backup)
+            print(f"previous final model kept as {backup}", flush=True)
+    torch.save({"model": field.state_dict(), "center": center, "scale": scale,
+                "keep": keep, "kept_names": kept_names, "p_center": p_center,
+                "p_scale": p_scale, "log_eps": LOG_EPS, "r_lo": R_LO, "r_hi": R_HI,
+                "rate_groups": GROUP_NAMES, "inert": inert,
+                "element_conservation": bool(field._elem_on), "elements": ELEMENTS,
+                "last_stage": last,
+                "settings": {s_["name"]: (str(s_["value"]) if isinstance(s_["value"], Path)
+                                          else s_["value"])
+                             for s_ in _SETTINGS.values()}},
+               final_path)
+    print(f"final model: {final_path}", flush=True)
+    print(f"\ntotal wall time {(time.time()-t_start)/60:.1f} min", flush=True)
