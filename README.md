@@ -6,3 +6,9 @@
 4. Then element conservation is applied as a hard constraint in the model rather than applying it in loss function and fine tune it's weights, this reduces one hyperparameter to tune. Losses of temperature and mass fractions are improved in this model evaluation.
 5. In the next step enthalpy conservation is applied in similar way as mass conservation(hard constraint) which further reduced the losses.
 6. The remaining step is to train and evaluate the model for a reduced dataset to determine how many data points are needed to accurately represent the dynamics.
+
+#Libraries needed:
+1. PyTorch
+2. Matplotlib
+3. Scipy
+--> pip install python torch torchdiffeq matplotlib scipy
