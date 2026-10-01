@@ -11,4 +11,5 @@
 1. PyTorch
 2. Matplotlib
 3. Scipy
---> pip install python torch torchdiffeq matplotlib scipy
+4. Cantera
+5. pip install cantera torch torchdiffeq matplotlib scipy
